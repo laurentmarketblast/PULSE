@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Pulse",
+    "slug": "pulse",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      ["expo-location", {
+        "locationWhenInUsePermission": "Pulse needs your location to find people nearby."
+      }]
+    ]
+  }
+}
