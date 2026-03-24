@@ -1,4 +1,11 @@
 .env 
+<<<<<<< HEAD
 __pycache__/ 
 *.pyc 
+=======
+node_modules/ 
+__pycache__/ 
+*.pyc 
+.expo/ 
+>>>>>>> 7291c0ee770d627402253818b596fe84f0acceaa
 .venv/ 
