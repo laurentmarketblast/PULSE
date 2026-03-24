@@ -29,30 +29,36 @@ class ProposalStatus(str, enum.Enum):
 class User(Base):
     __tablename__ = "users"
 
-    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    username     = Column(String(50),  unique=True, nullable=False, index=True)
-    display_name = Column(String(100), nullable=False)
-    bio          = Column(Text,        nullable=True)
-    avatar_url   = Column(Text,        nullable=True)
-    photo_urls   = Column(JSONB,       nullable=False, default=list)
-
-    interest_tags = Column(JSONB,       nullable=False, default=list)
-    looking_for   = Column(String(100), nullable=True)
-    sexuality     = Column(String(50),  nullable=True)
-    age           = Column(Integer,     nullable=True)
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    username        = Column(String(50),  unique=True, nullable=False, index=True)
+    display_name    = Column(String(100), nullable=False)
+    bio             = Column(Text,        nullable=True)
+    avatar_url      = Column(Text,        nullable=True)
+    photo_urls      = Column(JSONB,       nullable=False, default=list)
+    interest_tags   = Column(JSONB,       nullable=False, default=list)
+    looking_for     = Column(String(100), nullable=True)
+    sexuality       = Column(String(50),  nullable=True)
+    age             = Column(Integer,     nullable=True)
+    hashed_password = Column(String(255), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(),
                         onupdate=func.now(), nullable=False)
 
-    location           = relationship("UserLocation", back_populates="user",
-                                      uselist=False, cascade="all, delete-orphan")
-    sent_proposals     = relationship("Proposal", back_populates="sender",
-                                      foreign_keys="Proposal.sender_id",
-                                      cascade="all, delete-orphan")
-    received_proposals = relationship("Proposal", back_populates="receiver",
-                                      foreign_keys="Proposal.receiver_id",
-                                      cascade="all, delete-orphan")
+    location = relationship(
+        "UserLocation", back_populates="user",
+        uselist=False, cascade="all, delete-orphan",
+    )
+    sent_proposals = relationship(
+        "Proposal", back_populates="sender",
+        foreign_keys="Proposal.sender_id",
+        cascade="all, delete-orphan",
+    )
+    received_proposals = relationship(
+        "Proposal", back_populates="receiver",
+        foreign_keys="Proposal.receiver_id",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         Index("ix_users_interest_tags_gin", interest_tags, postgresql_using="gin"),
@@ -87,13 +93,15 @@ class Proposal(Base):
     status       = Column(SAEnum(ProposalStatus), nullable=False,
                           default=ProposalStatus.pending, index=True)
     message      = Column(Text, nullable=True)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    resolved_at  = Column(DateTime(timezone=True), nullable=True)
 
-    created_at  = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    resolved_at = Column(DateTime(timezone=True), nullable=True)
-
-    sender   = relationship("User", back_populates="sent_proposals",    foreign_keys=[sender_id])
-    receiver = relationship("User", back_populates="received_proposals", foreign_keys=[receiver_id])
-    messages = relationship("Message", back_populates="proposal", cascade="all, delete-orphan")
+    sender   = relationship("User", back_populates="sent_proposals",
+                            foreign_keys=[sender_id])
+    receiver = relationship("User", back_populates="received_proposals",
+                            foreign_keys=[receiver_id])
+    messages = relationship("Message", back_populates="proposal",
+                            cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_proposals_receiver_status", "receiver_id", "status"),

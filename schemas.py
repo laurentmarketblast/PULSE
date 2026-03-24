@@ -11,19 +11,20 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 # Users
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 
 class UserCreate(BaseModel):
-    username:      str           = Field(..., min_length=3, max_length=50)
-    display_name:  str           = Field(..., min_length=1, max_length=100)
+    username:      str           = Field(..., min_length=3,  max_length=50)
+    display_name:  str           = Field(..., min_length=1,  max_length=100)
+    password:      str           = Field(..., min_length=8)
     bio:           Optional[str] = None
     avatar_url:    Optional[str] = None
     photo_urls:    List[str]     = Field(default_factory=list)
     interest_tags: List[str]     = Field(default_factory=list)
-    looking_for:   Optional[str] = None   # casual hookup, FWB, threesome, etc.
-    sexuality:     Optional[str] = None   # straight, gay, bi, pan, etc.
+    looking_for:   Optional[str] = None
+    sexuality:     Optional[str] = None
     age:           Optional[int] = Field(None, ge=18, le=100)
 
 
@@ -43,18 +44,18 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 # Locations
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 
 class LocationUpdate(BaseModel):
     latitude:  float = Field(..., ge=-90,  le=90)
     longitude: float = Field(..., ge=-180, le=180)
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 # Nearby
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 
 class NearbyRequest(BaseModel):
     latitude:     float = Field(..., ge=-90,  le=90)
@@ -78,9 +79,9 @@ class NearbyUser(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 # Proposals
-# ─────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
 
 class ProposalCreate(BaseModel):
     receiver_id:  uuid.UUID
