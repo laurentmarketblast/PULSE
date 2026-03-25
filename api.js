@@ -1,4 +1,4 @@
-const BASE_URL = "http://192.168.1.179:8001";
+const BASE_URL = "https://pulseappv2-production.up.railway.app";
 
 const authHeaders = (token) => ({
   "Content-Type": "application/json",
