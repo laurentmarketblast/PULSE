@@ -33,6 +33,11 @@ export const api = {
       body: JSON.stringify(data),
     }).then((r) => r.json()),
 
+  getUserById: (token, userId) =>
+    fetch(`${BASE_URL}/users/${userId}`, {
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
+
   // ── Location ──────────────────────────────────────
   updateLocation: (token, latitude, longitude) =>
     fetch(`${BASE_URL}/users/me/location`, {
