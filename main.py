@@ -1,6 +1,5 @@
 """
 Pulse App — Main FastAPI application
-JWT Authentication added
 """
 
 from __future__ import annotations
@@ -10,10 +9,10 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from geoalchemy2.functions import ST_DWithin, ST_Distance, ST_MakePoint, ST_SetSRID
@@ -35,11 +34,11 @@ logger = logging.getLogger("pulse")
 # JWT CONFIG
 # ═══════════════════════════════════════════════════
 
-SECRET_KEY   = os.getenv("JWT_SECRET", "change-this-secret-in-production")
-ALGORITHM    = "HS256"
+SECRET_KEY  = os.getenv("JWT_SECRET", "change-this-secret-in-production")
+ALGORITHM   = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context   = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 PROPOSAL_TTL_MINUTES = 43200  # 30 days
@@ -97,13 +96,24 @@ app = FastAPI(title="Pulse API", version="2.0.0", lifespan=lifespan)
 
 class TokenOut(BaseModel):
     access_token: str
-    token_type: str
-    user: UserOut
+    token_type:   str
+    user:         UserOut
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class UserUpdate(BaseModel):
+    bio:           Optional[str]       = None
+    display_name:  Optional[str]       = None
+    avatar_url:    Optional[str]       = None
+    photo_urls:    Optional[List[str]] = None
+    interest_tags: Optional[List[str]] = None
+    looking_for:   Optional[str]       = None
+    sexuality:     Optional[str]       = None
+    age:           Optional[int]       = None
 
 
 # ═══════════════════════════════════════════════════
@@ -137,13 +147,30 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password.")
 
-    # Temporary: support old accounts without hashed_password
     if user.hashed_password:
         if not pwd_context.verify(payload.password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid username or password.")
 
     token = create_access_token(str(user.id))
     return TokenOut(access_token=token, token_type="bearer", user=user)
+
+
+@app.get("/users/me", response_model=UserOut)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@app.patch("/users/me", response_model=UserOut)
+async def update_user(
+    payload: UserUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
 
 
 @app.get("/users/by-username/{username}", response_model=UserOut)
@@ -154,25 +181,16 @@ async def get_user_by_username(username: str, db: AsyncSession = Depends(get_db)
     return user
 
 
-@app.patch("/users/me", response_model=UserOut)
-async def update_user(
-    payload: dict,
+@app.get("/users/{user_id}", response_model=UserOut)
+async def get_user_by_id(
+    user_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    allowed = ["interest_tags", "display_name", "bio", "avatar_url",
-               "photo_urls", "looking_for", "sexuality", "age"]
-    for field in allowed:
-        if field in payload:
-            setattr(current_user, field, payload[field])
-    await db.commit()
-    await db.refresh(current_user)
-    return current_user
-
-
-@app.get("/users/me", response_model=UserOut)
-async def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return user
 
 
 # ═══════════════════════════════════════════════════
@@ -188,7 +206,7 @@ async def update_location(
     point_expr = ST_SetSRID(ST_MakePoint(payload.longitude, payload.latitude), 4326)
     loc = await db.scalar(select(UserLocation).where(UserLocation.user_id == current_user.id))
     if loc:
-        loc.point = point_expr
+        loc.point      = point_expr
         loc.updated_at = func.now()
     else:
         loc = UserLocation(user_id=current_user.id, point=point_expr)
@@ -202,8 +220,8 @@ async def update_location(
 
 @app.get("/nearby", response_model=List[NearbyUser])
 async def get_nearby(
-    latitude: float,
-    longitude: float,
+    latitude:     float,
+    longitude:    float,
     radius_miles: float = 10.0,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -230,7 +248,7 @@ async def get_nearby(
     results = []
     for row_user, dist_m in rows:
         row_tags = row_user.interest_tags or []
-        shared = list(set(caller_tags) & set(row_tags))
+        shared   = list(set(caller_tags) & set(row_tags))
         if not shared:
             continue
         results.append(
@@ -257,9 +275,9 @@ async def get_nearby(
 
 @app.post("/propose", response_model=ProposalOut, status_code=status.HTTP_201_CREATED)
 async def create_proposal(
-    payload: ProposalCreate,
+    payload:      ProposalCreate,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db:           AsyncSession = Depends(get_db),
 ):
     if current_user.id == payload.receiver_id:
         raise HTTPException(status_code=400, detail="Cannot propose to yourself.")
@@ -293,7 +311,7 @@ async def create_proposal(
 @app.get("/proposals/inbox", response_model=List[ProposalOut])
 async def get_inbox(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db:           AsyncSession = Depends(get_db),
 ):
     stmt = (
         select(Proposal)
@@ -307,7 +325,7 @@ async def get_inbox(
 @app.get("/proposals/sent", response_model=List[ProposalOut])
 async def get_sent(
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db:           AsyncSession = Depends(get_db),
 ):
     stmt = (
         select(Proposal)
@@ -320,10 +338,10 @@ async def get_sent(
 
 @app.post("/proposals/{proposal_id}/respond", response_model=ProposalOut)
 async def respond_to_proposal(
-    proposal_id: uuid.UUID,
-    payload: ProposalRespond,
+    proposal_id:  uuid.UUID,
+    payload:      ProposalRespond,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db:           AsyncSession = Depends(get_db),
 ):
     proposal = await db.get(Proposal, proposal_id)
     if not proposal:
@@ -380,11 +398,11 @@ class MessageIn(BaseModel):
 
 
 class MessageOut(BaseModel):
-    id: uuid.UUID
+    id:          uuid.UUID
     proposal_id: uuid.UUID
-    sender_id: uuid.UUID
-    content: str
-    created_at: datetime
+    sender_id:   uuid.UUID
+    content:     str
+    created_at:  datetime
 
     class Config:
         from_attributes = True
@@ -392,10 +410,10 @@ class MessageOut(BaseModel):
 
 @app.post("/proposals/{proposal_id}/messages", response_model=MessageOut, status_code=201)
 async def send_message(
-    proposal_id: uuid.UUID,
-    payload: MessageIn,
+    proposal_id:  uuid.UUID,
+    payload:      MessageIn,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db:           AsyncSession = Depends(get_db),
 ):
     proposal = await db.get(Proposal, proposal_id)
     if not proposal:
@@ -421,9 +439,9 @@ async def send_message(
 
 @app.get("/proposals/{proposal_id}/messages", response_model=List[MessageOut])
 async def get_messages(
-    proposal_id: uuid.UUID,
+    proposal_id:  uuid.UUID,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db:           AsyncSession = Depends(get_db),
 ):
     proposal = await db.get(Proposal, proposal_id)
     if not proposal:
