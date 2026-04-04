@@ -1,6 +1,12 @@
-const BASE_URL = "http://192.168.1.179:8000";
+const BASE_URL = "https://pulseappv2-production.up.railway.app";
+
+const authHeaders = (token) => ({
+  "Content-Type": "application/json",
+  Authorization: `Bearer ${token}`,
+});
 
 export const api = {
+  // ── Auth ──────────────────────────────────────────
   createUser: (data) =>
     fetch(`${BASE_URL}/users`, {
       method: "POST",
@@ -8,45 +14,80 @@ export const api = {
       body: JSON.stringify(data),
     }).then((r) => r.json()),
 
-  updateLocation: (userId, latitude, longitude) =>
-    fetch(`${BASE_URL}/users/${userId}/location`, {
-      method: "PUT",
+  login: (username, password) =>
+    fetch(`${BASE_URL}/login`, {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    }).then((r) => r.json()),
+
+  getMe: (token) =>
+    fetch(`${BASE_URL}/users/me`, {
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
+
+  updateProfile: (token, data) =>
+    fetch(`${BASE_URL}/users/me`, {
+      method: "PATCH",
+      headers: authHeaders(token),
+      body: JSON.stringify(data),
+    }).then((r) => r.json()),
+
+  getUserById: (token, userId) =>
+    fetch(`${BASE_URL}/users/${userId}`, {
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
+
+  // ── Location ──────────────────────────────────────
+  updateLocation: (token, latitude, longitude) =>
+    fetch(`${BASE_URL}/users/me/location`, {
+      method: "PUT",
+      headers: authHeaders(token),
       body: JSON.stringify({ latitude, longitude }),
     }),
 
-  getNearby: (latitude, longitude, userId, radius_miles = 10) =>
-    fetch(`${BASE_URL}/nearby?latitude=${latitude}&longitude=${longitude}&user_id=${userId}&radius_miles=${radius_miles}`)
-      .then((r) => r.json()),
+  // ── Nearby ────────────────────────────────────────
+  getNearby: (token, latitude, longitude, radius_miles = 10) =>
+    fetch(
+      `${BASE_URL}/nearby?latitude=${latitude}&longitude=${longitude}&radius_miles=${radius_miles}`,
+      { headers: authHeaders(token) }
+    ).then((r) => r.json()),
 
-  sendProposal: (senderId, receiverId, activity_tag, message = "") =>
-    fetch(`${BASE_URL}/propose?sender_id=${senderId}`, {
+  // ── Proposals ─────────────────────────────────────
+  sendProposal: (token, receiverId, activity_tag, message = "") =>
+    fetch(`${BASE_URL}/propose`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(token),
       body: JSON.stringify({ receiver_id: receiverId, activity_tag, message }),
     }).then((r) => r.json()),
 
-  getInbox: (userId) =>
-    fetch(`${BASE_URL}/proposals/inbox?user_id=${userId}`).then((r) => r.json()),
+  getInbox: (token) =>
+    fetch(`${BASE_URL}/proposals/inbox`, {
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
 
-  getSent: (userId) =>
-    fetch(`${BASE_URL}/proposals/sent?user_id=${userId}`).then((r) => r.json()),
+  getSent: (token) =>
+    fetch(`${BASE_URL}/proposals/sent`, {
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
 
-  respondToProposal: (proposalId, accept) =>
+  respondToProposal: (token, proposalId, accept) =>
     fetch(`${BASE_URL}/proposals/${proposalId}/respond`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(token),
       body: JSON.stringify({ accept }),
     }).then((r) => r.json()),
 
-  getMessages: (proposalId, userId) =>
-    fetch(`${BASE_URL}/proposals/${proposalId}/messages?user_id=${userId}`)
-      .then((r) => r.json()),
+  // ── Messages ──────────────────────────────────────
+  getMessages: (token, proposalId) =>
+    fetch(`${BASE_URL}/proposals/${proposalId}/messages`, {
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
 
-  sendMessage: (proposalId, senderId, content) =>
-    fetch(`${BASE_URL}/proposals/${proposalId}/messages?sender_id=${senderId}`, {
+  sendMessage: (token, proposalId, content) =>
+    fetch(`${BASE_URL}/proposals/${proposalId}/messages`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(token),
       body: JSON.stringify({ content }),
     }).then((r) => r.json()),
 };
