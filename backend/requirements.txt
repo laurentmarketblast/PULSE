@@ -30,7 +30,7 @@ six==1.17.0
 slowapi==0.1.9
 SQLAlchemy==2.0.48
 starlette==0.52.1
-supabase==2.12.2
+supabase==2.28.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uv==0.10.2
