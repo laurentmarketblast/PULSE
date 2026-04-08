@@ -50,13 +50,12 @@ const logo = StyleSheet.create({
   bar3: { height: 18, right: 18, opacity: 0.9 },
 });
 
-const BASE_URL = "http://192.168.1.179:8000";
-
 export default function SignupScreen() {
   const { setUser }                     = useUser();
-  const [mode, setMode]                 = useState("signup"); // "signup" | "login"
+  const [mode, setMode]                 = useState("signup");
   const [username, setUsername]         = useState("");
   const [displayName, setDisplayName]   = useState("");
+  const [password, setPassword]         = useState("");
   const [selectedTags, setSelectedTags] = useState([]);
   const [loading, setLoading]           = useState(false);
   const [focused, setFocused]           = useState(null);
@@ -78,19 +77,17 @@ export default function SignupScreen() {
   };
 
   const handleLogin = async () => {
-    if (!username.trim()) {
-      Alert.alert("Enter your username");
+    if (!username.trim() || !password.trim()) {
+      Alert.alert("Missing info", "Enter your username and password.");
       return;
     }
     setLoading(true);
     try {
-      // Find user by username
-      const res = await fetch(`${BASE_URL}/users/by-username/${username.trim().toLowerCase()}`);
-      const data = await res.json();
-      if (data.id) {
-        setUser(data);
+      const data = await api.login(username.trim().toLowerCase(), password);
+      if (data.access_token) {
+        setUser(data.user, data.access_token);
       } else {
-        Alert.alert("Not found", "No account with that username. Check your spelling or sign up.");
+        Alert.alert("Login failed", data.detail || "Invalid username or password.");
       }
     } catch {
       Alert.alert("No connection", "Check that your server is running.");
@@ -100,21 +97,26 @@ export default function SignupScreen() {
   };
 
   const handleSignup = async () => {
-    if (!username.trim() || !displayName.trim() || selectedTags.length === 0) {
-      Alert.alert("Not so fast", "Fill in your name and pick what you're down for.");
+    if (!username.trim() || !displayName.trim() || !password.trim() || selectedTags.length === 0) {
+      Alert.alert("Not so fast", "Fill in all fields and pick what you're down for.");
+      return;
+    }
+    if (password.length < 8) {
+      Alert.alert("Weak password", "Password must be at least 8 characters.");
       return;
     }
     setLoading(true);
     try {
-      const user = await api.createUser({
+      const data = await api.createUser({
         username: username.trim().toLowerCase(),
         display_name: displayName.trim(),
+        password,
         interest_tags: selectedTags,
       });
-      if (user.id) {
-        setUser(user);
+      if (data.access_token) {
+        setUser(data.user, data.access_token);
       } else {
-        Alert.alert("Hmm", user.detail || "Something went wrong.");
+        Alert.alert("Hmm", data.detail || "Something went wrong.");
       }
     } catch {
       Alert.alert("No connection", "Check that your server is running.");
@@ -159,22 +161,38 @@ export default function SignupScreen() {
           {mode === "login" ? (
             // ── LOGIN ──
             <View>
-              <View style={[s.inputWrap, focused === "user" && s.inputWrapFocused]}>
-                <Text style={s.inputLabel}>USERNAME</Text>
-                <TextInput
-                  style={s.input}
-                  placeholder="@handle"
-                  placeholderTextColor="#3a3a3a"
-                  value={username}
-                  onChangeText={setUsername}
-                  autoCapitalize="none"
-                  onFocus={() => setFocused("user")}
-                  onBlur={() => setFocused(null)}
-                  selectionColor="#FF3C50"
-                />
+              <View style={s.inputs}>
+                <View style={[s.inputWrap, focused === "user" && s.inputWrapFocused]}>
+                  <Text style={s.inputLabel}>USERNAME</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="@handle"
+                    placeholderTextColor="#3a3a3a"
+                    value={username}
+                    onChangeText={setUsername}
+                    autoCapitalize="none"
+                    onFocus={() => setFocused("user")}
+                    onBlur={() => setFocused(null)}
+                    selectionColor="#FF3C50"
+                  />
+                </View>
+                <View style={[s.inputWrap, focused === "pass" && s.inputWrapFocused]}>
+                  <Text style={s.inputLabel}>PASSWORD</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="••••••••"
+                    placeholderTextColor="#3a3a3a"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    onFocus={() => setFocused("pass")}
+                    onBlur={() => setFocused(null)}
+                    selectionColor="#FF3C50"
+                  />
+                </View>
               </View>
 
-              <TouchableOpacity style={[s.ctaWrap, { marginTop: 24 }]} onPress={handleLogin} disabled={loading} activeOpacity={0.85}>
+              <TouchableOpacity style={[s.ctaWrap, { marginTop: 8 }]} onPress={handleLogin} disabled={loading} activeOpacity={0.85}>
                 <LinearGradient colors={["#FF3C50", "#C0183B"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.cta}>
                   {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.ctaText}>Log in</Text>}
                 </LinearGradient>
@@ -213,6 +231,20 @@ export default function SignupScreen() {
                     onChangeText={setUsername}
                     autoCapitalize="none"
                     onFocus={() => setFocused("user")}
+                    onBlur={() => setFocused(null)}
+                    selectionColor="#FF3C50"
+                  />
+                </View>
+                <View style={[s.inputWrap, focused === "pass" && s.inputWrapFocused]}>
+                  <Text style={s.inputLabel}>PASSWORD</Text>
+                  <TextInput
+                    style={s.input}
+                    placeholder="min 8 characters"
+                    placeholderTextColor="#3a3a3a"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    onFocus={() => setFocused("pass")}
                     onBlur={() => setFocused(null)}
                     selectionColor="#FF3C50"
                   />

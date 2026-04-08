@@ -2,15 +2,15 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   Alert, StatusBar, Animated, ActivityIndicator, TextInput,
-  Modal, FlatList,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useUser } from "../context/UserContext";
 import Avatar from "../components/Avatar";
 import ProfilePreviewModal from "../components/ProfilePreviewModal";
 import { pickAndUploadPhoto } from "../utils/uploadPhoto";
+import { api } from "../api";
 
-const BASE_URL = "http://192.168.1.179:8000";
 const MAX_PHOTOS = 6;
 
 const ALL_TAGS = [
@@ -29,13 +29,8 @@ const LOOKING_FOR_OPTIONS = [
 ];
 
 const SEXUALITY_OPTIONS = [
-  "Straight",
-  "Gay",
-  "Lesbian",
-  "Bisexual",
-  "Pansexual",
-  "Queer",
-  "Prefer not to say",
+  "Straight", "Gay", "Lesbian", "Bisexual",
+  "Pansexual", "Queer", "Prefer not to say",
 ];
 
 function PickerModal({ visible, title, options, selected, onSelect, onClose }) {
@@ -78,7 +73,7 @@ const pm = StyleSheet.create({
 });
 
 export default function ProfileScreen() {
-  const { user, setUser } = useUser();
+  const { user, token, setUser, logout } = useUser();
 
   const [photos, setPhotos]           = useState(user.photo_urls || []);
   const [bio, setBio]                 = useState(user.bio || "");
@@ -86,7 +81,6 @@ export default function ProfileScreen() {
   const [lookingFor, setLookingFor]   = useState(user.looking_for || "");
   const [sexuality, setSexuality]     = useState(user.sexuality || "");
   const [tags, setTags]               = useState(user.interest_tags || []);
-
   const [saving, setSaving]           = useState(false);
   const [uploading, setUploading]     = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -114,7 +108,6 @@ export default function ProfileScreen() {
       if (!url) return;
       const newPhotos = [...photos, url];
       setPhotos(newPhotos);
-      // If first photo, also set as avatar
       const updates = { photo_urls: newPhotos };
       if (!user.avatar_url) updates.avatar_url = url;
       await saveToBackend(updates);
@@ -133,20 +126,15 @@ export default function ProfileScreen() {
           const newPhotos = photos.filter((_, i) => i !== index);
           setPhotos(newPhotos);
           await saveToBackend({ photo_urls: newPhotos });
-        }
+        },
       },
     ]);
   };
 
   const saveToBackend = async (updates) => {
     try {
-      const res = await fetch(`${BASE_URL}/users/${user.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      const updated = await res.json();
-      if (updated.id) setUser({ ...user, ...updates });
+      const updated = await api.updateProfile(token, updates);
+      if (updated.id) setUser({ ...user, ...updates }, token);
     } catch {
       Alert.alert("Error", "Could not save.");
     }
@@ -163,14 +151,9 @@ export default function ProfileScreen() {
         sexuality: sexuality || null,
         interest_tags: tags,
       };
-      const res = await fetch(`${BASE_URL}/users/${user.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      const updated = await res.json();
+      const updated = await api.updateProfile(token, updates);
       if (updated.id) {
-        setUser({ ...user, ...updates });
+        setUser({ ...user, ...updates }, token);
         Alert.alert("Saved ✓");
       }
     } catch {
@@ -183,14 +166,12 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert("Log out", "You'll need to sign back in.", [
       { text: "Cancel", style: "cancel" },
-      { text: "Log out", style: "destructive", onPress: () => setUser(null) },
+      { text: "Log out", style: "destructive", onPress: logout },
     ]);
   };
 
   const toggleTag = (tag) => {
-    setTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
+    setTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   };
 
   return (
@@ -202,14 +183,12 @@ export default function ProfileScreen() {
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
           <View style={{ height: 20 }} />
 
-          {/* Name header */}
           <View style={s.nameBlock}>
             <Text style={s.label}>PROFILE</Text>
             <Text style={s.displayName}>{user.display_name}</Text>
             <Text style={s.username}>@{user.username}</Text>
           </View>
 
-          {/* ── PHOTOS ── */}
           <Text style={s.sectionLabel}>PHOTOS</Text>
           <View style={s.photoGrid}>
             {photos.map((uri, index) => (
@@ -231,7 +210,6 @@ export default function ProfileScreen() {
           </View>
           <Text style={s.photoHint}>Hold to remove · {photos.length}/{MAX_PHOTOS} photos</Text>
 
-          {/* ── BIO ── */}
           <Text style={s.sectionLabel}>BIO</Text>
           <View style={s.inputWrap}>
             <TextInput
@@ -247,7 +225,6 @@ export default function ProfileScreen() {
             <Text style={s.charCount}>{bio.length}/150</Text>
           </View>
 
-          {/* ── AGE ── */}
           <Text style={s.sectionLabel}>AGE</Text>
           <View style={[s.inputWrap, { marginBottom: 24 }]}>
             <TextInput
@@ -262,25 +239,18 @@ export default function ProfileScreen() {
             />
           </View>
 
-          {/* ── LOOKING FOR ── */}
           <Text style={s.sectionLabel}>LOOKING FOR</Text>
           <TouchableOpacity style={s.pickerBtn} onPress={() => setShowLookingFor(true)}>
-            <Text style={[s.pickerBtnText, lookingFor && s.pickerBtnSelected]}>
-              {lookingFor || "Select..."}
-            </Text>
+            <Text style={[s.pickerBtnText, lookingFor && s.pickerBtnSelected]}>{lookingFor || "Select..."}</Text>
             <Text style={s.pickerArrow}>›</Text>
           </TouchableOpacity>
 
-          {/* ── SEXUALITY ── */}
           <Text style={s.sectionLabel}>SEXUALITY</Text>
           <TouchableOpacity style={s.pickerBtn} onPress={() => setShowSexuality(true)}>
-            <Text style={[s.pickerBtnText, sexuality && s.pickerBtnSelected]}>
-              {sexuality || "Select..."}
-            </Text>
+            <Text style={[s.pickerBtnText, sexuality && s.pickerBtnSelected]}>{sexuality || "Select..."}</Text>
             <Text style={s.pickerArrow}>›</Text>
           </TouchableOpacity>
 
-          {/* ── TAGS ── */}
           <Text style={s.sectionLabel}>I'M DOWN FOR</Text>
           <View style={s.tags}>
             {ALL_TAGS.map((tag) => {
@@ -294,19 +264,16 @@ export default function ProfileScreen() {
             })}
           </View>
 
-          {/* ── SAVE ── */}
           <TouchableOpacity style={s.saveBtn} onPress={handleSaveAll} disabled={saving} activeOpacity={0.85}>
             <LinearGradient colors={["#FF3C50", "#C0183B"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={s.saveBtnGradient}>
               {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveBtnText}>Save Profile</Text>}
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* ── VIEW PROFILE ── */}
           <TouchableOpacity style={s.previewBtn} onPress={() => setShowPreview(true)} activeOpacity={0.7}>
             <Text style={s.previewBtnText}>Preview my profile →</Text>
           </TouchableOpacity>
 
-          {/* ── BOTTOM ── */}
           <View style={s.bottomSection}>
             <View style={s.idRow}>
               <Text style={s.idLabel}>USER ID</Text>
@@ -320,22 +287,8 @@ export default function ProfileScreen() {
         </Animated.View>
       </ScrollView>
 
-      <PickerModal
-        visible={showLookingFor}
-        title="Looking for"
-        options={LOOKING_FOR_OPTIONS}
-        selected={lookingFor}
-        onSelect={setLookingFor}
-        onClose={() => setShowLookingFor(false)}
-      />
-      <PickerModal
-        visible={showSexuality}
-        title="Sexuality"
-        options={SEXUALITY_OPTIONS}
-        selected={sexuality}
-        onSelect={setSexuality}
-        onClose={() => setShowSexuality(false)}
-      />
+      <PickerModal visible={showLookingFor} title="Looking for" options={LOOKING_FOR_OPTIONS} selected={lookingFor} onSelect={setLookingFor} onClose={() => setShowLookingFor(false)} />
+      <PickerModal visible={showSexuality} title="Sexuality" options={SEXUALITY_OPTIONS} selected={sexuality} onSelect={setSexuality} onClose={() => setShowSexuality(false)} />
       <ProfilePreviewModal
         visible={showPreview}
         user={{ ...user, bio, age: age ? parseInt(age) : null, looking_for: lookingFor, sexuality, interest_tags: tags, photo_urls: photos }}
@@ -349,15 +302,11 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#060606" },
   accentLine: { position: "absolute", left: 24, top: 0, bottom: 0, width: 1, backgroundColor: "rgba(255,60,80,0.12)" },
   scroll: { paddingLeft: 40, paddingRight: 24, paddingBottom: 80 },
-
   nameBlock: { marginBottom: 32 },
   label: { fontSize: 9, letterSpacing: 3, color: "#FF3C50", marginBottom: 12 },
   displayName: { fontSize: 36, fontWeight: "800", color: "#fff", letterSpacing: -1, lineHeight: 40, marginBottom: 4 },
   username: { fontSize: 13, color: "#2a2a2a", letterSpacing: 1 },
-
   sectionLabel: { fontSize: 9, letterSpacing: 3, color: "#2a2a2a", marginBottom: 12, marginTop: 8 },
-
-  // Photos
   photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 8 },
   photoSlot: { position: "relative" },
   mainBadge: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(255,60,80,0.85)", paddingVertical: 3, alignItems: "center", borderBottomLeftRadius: 50, borderBottomRightRadius: 50 },
@@ -365,36 +314,25 @@ const s = StyleSheet.create({
   addPhotoSlot: { width: 100, height: 100, borderRadius: 50, borderWidth: 1.5, borderColor: "#1e1e1e", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#0a0a0a" },
   addPhotoIcon: { color: "#FF3C50", fontSize: 28, fontWeight: "300" },
   photoHint: { color: "#1e1e1e", fontSize: 11, marginBottom: 28 },
-
-  // Bio
   inputWrap: { backgroundColor: "#0e0e0e", borderWidth: 1, borderColor: "#1a1a1a", borderRadius: 6, padding: 14, marginBottom: 24 },
   bioInput: { color: "#fff", fontSize: 15, lineHeight: 22, minHeight: 80, textAlignVertical: "top" },
   ageInput: { color: "#fff", fontSize: 15 },
   charCount: { color: "#222", fontSize: 11, textAlign: "right", marginTop: 6 },
-
-  // Picker
   pickerBtn: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#0e0e0e", borderWidth: 1, borderColor: "#1a1a1a", borderRadius: 6, paddingHorizontal: 16, paddingVertical: 16, marginBottom: 24 },
   pickerBtnText: { color: "#2a2a2a", fontSize: 15 },
   pickerBtnSelected: { color: "#fff" },
   pickerArrow: { color: "#333", fontSize: 20 },
-
-  // Tags
   tags: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 32 },
   tag: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: "#111", borderRadius: 2, backgroundColor: "#080808" },
   tagActive: { borderColor: "rgba(255,60,80,0.3)", backgroundColor: "rgba(255,60,80,0.05)" },
   tagDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#FF3C50" },
   tagText: { color: "#222", fontSize: 13, fontWeight: "500" },
   tagTextActive: { color: "#fff" },
-
-  // Save
   saveBtn: { borderRadius: 6, overflow: "hidden", marginBottom: 12 },
   saveBtnGradient: { paddingVertical: 16, alignItems: "center" },
   saveBtnText: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: 1 },
-
   previewBtn: { alignItems: "center", paddingVertical: 14, marginBottom: 32 },
   previewBtnText: { color: "#FF3C50", fontSize: 14, letterSpacing: 0.5 },
-
-  // Bottom
   bottomSection: { borderTopWidth: 1, borderColor: "#0e0e0e", paddingTop: 24, gap: 20 },
   idRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   idLabel: { color: "#1a1a1a", fontSize: 9, letterSpacing: 3 },
