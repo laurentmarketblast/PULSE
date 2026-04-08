@@ -17,7 +17,9 @@ from pydantic import BaseModel, Field
 
 class UserCreate(BaseModel):
     username:      str           = Field(..., min_length=3, max_length=50)
+    password:      str           = Field(..., min_length=8, max_length=100)
     display_name:  str           = Field(..., min_length=1, max_length=100)
+    date_of_birth: Optional[datetime] = None
     bio:           Optional[str] = None
     avatar_url:    Optional[str] = None
     photo_urls:    List[str]     = Field(default_factory=list)

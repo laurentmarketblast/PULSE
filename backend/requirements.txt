@@ -13,9 +13,11 @@ GeoAlchemy2==0.18.4
 greenlet==3.3.2
 h11==0.16.0
 httptools==0.7.1
+httpx==0.28.1
 idna==3.11
 packaging==26.0
 passlib==1.7.4
+Pillow==11.2.0
 pyasn1==0.6.2
 pycparser==3.0
 pydantic==2.12.5
@@ -25,8 +27,10 @@ python-jose==3.5.0
 PyYAML==6.0.3
 rsa==4.9.1
 six==1.17.0
+slowapi==0.1.9
 SQLAlchemy==2.0.48
 starlette==0.52.1
+supabase==2.12.2
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uv==0.10.2

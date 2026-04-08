@@ -11,22 +11,29 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, Request, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from geoalchemy2.functions import ST_DWithin, ST_Distance, ST_MakePoint, ST_SetSRID
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from database import create_tables, get_db
-from models import Proposal, ProposalStatus, User, UserLocation, Message
+from models import Proposal, ProposalStatus, User, UserLocation, Message, DeviceToken, UserBlock, UserReport
 from schemas import (
     LocationUpdate, NearbyUser,
     ProposalCreate, ProposalOut, ProposalRespond,
     UserCreate, UserOut,
 )
+from storage import get_supabase_client
+from PIL import Image
+import io
 
 logger = logging.getLogger("pulse")
 
@@ -34,7 +41,10 @@ logger = logging.getLogger("pulse")
 # JWT CONFIG
 # ═══════════════════════════════════════════════════
 
-SECRET_KEY  = os.getenv("JWT_SECRET", "change-this-secret-in-production")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET environment variable must be set")
+
 ALGORITHM   = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 days
 
@@ -89,6 +99,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Pulse API", version="2.0.0", lifespan=lifespan)
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8081",  # Expo dev
+        "http://localhost:19006",  # Expo web
+        "https://pulseappv2-production.up.railway.app",  # Production backend
+        # Add your production frontend URL here when ready
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # ═══════════════════════════════════════════════════
 # AUTH SCHEMAS
@@ -121,8 +150,12 @@ class UserUpdate(BaseModel):
 # ═══════════════════════════════════════════════════
 
 @app.post("/users", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
-async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
-    existing = await db.scalar(select(User).where(User.username == payload.username))
+@limiter.limit("10/minute")
+async def create_user(request: Request, payload: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Normalize username
+    normalized_username = payload.username.lower().strip()
+    
+    existing = await db.scalar(select(User).where(User.username == normalized_username))
     if existing:
         raise HTTPException(status_code=409, detail="Username already taken.")
 
@@ -131,6 +164,9 @@ async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
     if not raw_password:
         raise HTTPException(status_code=400, detail="Password is required.")
 
+    # Set normalized username
+    user_data["username"] = normalized_username
+    
     user = User(**user_data)
     user.hashed_password = pwd_context.hash(raw_password)
     db.add(user)
@@ -142,7 +178,8 @@ async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @app.post("/login", response_model=TokenOut)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await db.scalar(select(User).where(User.username == payload.username.lower()))
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or password.")
@@ -173,6 +210,87 @@ async def update_user(
     return current_user
 
 
+@app.post("/users/me/photos")
+async def upload_photo(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a profile photo (max 6 photos per user)"""
+    
+    # Validate file type
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(status_code=400, detail="Invalid file type. Only JPEG, PNG, and WebP allowed.")
+    
+    # Validate file size (10MB max)
+    file_content = await file.read()
+    if len(file_content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB.")
+    
+    # Check photo limit
+    if len(current_user.photo_urls) >= 6:
+        raise HTTPException(status_code=400, detail="Maximum 6 photos allowed.")
+    
+    try:
+        # Resize and compress image
+        img = Image.open(io.BytesIO(file_content))
+        
+        # Convert RGBA to RGB if needed
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        
+        # Resize maintaining aspect ratio
+        img.thumbnail((1080, 1080), Image.Resampling.LANCZOS)
+        
+        # Save to bytes
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='JPEG', quality=85, optimize=True)
+        img_bytes.seek(0)
+        
+        # Upload to Supabase Storage
+        supabase = get_supabase_client()
+        file_path = f"{current_user.id}/{uuid.uuid4()}.jpg"
+        
+        bucket = supabase.storage.from_("avatar")
+        bucket.upload(file_path, img_bytes.getvalue(), {
+            "content-type": "image/jpeg",
+            "upsert": "false"
+        })
+        
+        # Get public URL
+        public_url = bucket.get_public_url(file_path)
+        
+        # Add to user's photo_urls
+        current_user.photo_urls = current_user.photo_urls + [public_url]
+        await db.commit()
+        await db.refresh(current_user)
+        
+        return {"url": public_url, "total_photos": len(current_user.photo_urls)}
+    
+    except Exception as e:
+        logger.error(f"Photo upload failed: {e}")
+        raise HTTPException(status_code=500, detail="Photo upload failed")
+
+
+@app.delete("/users/me/photos")
+async def delete_photo(
+    photo_url: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a profile photo"""
+    if photo_url not in current_user.photo_urls:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+    
+    # Remove from array
+    current_user.photo_urls = [url for url in current_user.photo_urls if url != photo_url]
+    await db.commit()
+    
+    # TODO: Delete from Supabase Storage (optional - storage costs are minimal)
+    
+    return {"message": "Photo deleted", "total_photos": len(current_user.photo_urls)}
+
+
 @app.get("/users/by-username/{username}", response_model=UserOut)
 async def get_user_by_username(username: str, db: AsyncSession = Depends(get_db)):
     user = await db.scalar(select(User).where(User.username == username.lower()))
@@ -191,6 +309,73 @@ async def get_user_by_id(
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     return user
+
+
+@app.delete("/users/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft delete user account (App Store requirement)"""
+    current_user.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+
+
+class BlockUserRequest(BaseModel):
+    blocked_id: uuid.UUID
+
+
+@app.post("/users/block", status_code=status.HTTP_201_CREATED)
+async def block_user(
+    payload: BlockUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Block another user"""
+    if current_user.id == payload.blocked_id:
+        raise HTTPException(status_code=400, detail="Cannot block yourself.")
+    
+    # Check if already blocked
+    existing = await db.scalar(
+        select(UserBlock).where(
+            UserBlock.blocker_id == current_user.id,
+            UserBlock.blocked_id == payload.blocked_id
+        )
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="User already blocked.")
+    
+    block = UserBlock(blocker_id=current_user.id, blocked_id=payload.blocked_id)
+    db.add(block)
+    await db.commit()
+    return {"message": "User blocked successfully"}
+
+
+class ReportUserRequest(BaseModel):
+    reported_id: uuid.UUID
+    reason: str = Field(..., min_length=1, max_length=50)
+    details: Optional[str] = None
+
+
+@app.post("/users/report", status_code=status.HTTP_201_CREATED)
+async def report_user(
+    payload: ReportUserRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Report another user for misconduct"""
+    if current_user.id == payload.reported_id:
+        raise HTTPException(status_code=400, detail="Cannot report yourself.")
+    
+    report = UserReport(
+        reporter_id=current_user.id,
+        reported_id=payload.reported_id,
+        reason=payload.reason,
+        details=payload.details
+    )
+    db.add(report)
+    await db.commit()
+    return {"message": "Report submitted successfully"}
 
 
 # ═══════════════════════════════════════════════════

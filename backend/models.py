@@ -36,10 +36,28 @@ class User(Base):
     avatar_url   = Column(Text,        nullable=True)
     photo_urls   = Column(JSONB,       nullable=False, default=list)
 
+    # Authentication
+    hashed_password = Column(String(255), nullable=True)
+    
+    # Profile details
     interest_tags = Column(JSONB,       nullable=False, default=list)
     looking_for   = Column(String(100), nullable=True)
     sexuality     = Column(String(50),  nullable=True)
     age           = Column(Integer,     nullable=True)
+    date_of_birth = Column(DateTime(timezone=True), nullable=True)
+    
+    # Verification & moderation
+    is_verified     = Column(Integer, nullable=False, default=0)  # 0=unverified, 1=verified
+    is_premium      = Column(Integer, nullable=False, default=0)  # 0=free, 1=premium
+    deleted_at      = Column(DateTime(timezone=True), nullable=True)
+    
+    # Activity tracking
+    down_tonight_until = Column(DateTime(timezone=True), nullable=True)
+    boosted_until      = Column(DateTime(timezone=True), nullable=True)
+    last_active_at     = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    # Relationship type
+    relationship_type = Column(String(50), nullable=True)  # single/couple/poly/open
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(),
@@ -56,6 +74,8 @@ class User(Base):
 
     __table_args__ = (
         Index("ix_users_interest_tags_gin", interest_tags, postgresql_using="gin"),
+        Index("ix_users_down_tonight", down_tonight_until),
+        Index("ix_users_last_active", last_active_at),
     )
 
 
@@ -125,3 +145,58 @@ class Message(Base):
     __table_args__ = (
         Index("ix_messages_proposal_created", "proposal_id", "created_at"),
     )
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_tokens"
+
+    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id    = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    token      = Column(Text, nullable=False)
+    platform   = Column(String(10), nullable=False)  # ios/android
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_device_tokens_user_token", "user_id", "token", unique=True),
+    )
+
+
+class UserBlock(Base):
+    __tablename__ = "user_blocks"
+
+    id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    blocker_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    blocked_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                        nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_user_blocks_blocker_blocked", "blocker_id", "blocked_id", unique=True),
+    )
+
+
+class UserReport(Base):
+    __tablename__ = "user_reports"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    reporter_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    reported_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    reason      = Column(String(50), nullable=False)
+    details     = Column(Text, nullable=True)
+    created_at  = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class PhotoVerification(Base):
+    __tablename__ = "photo_verifications"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id     = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+                         nullable=False, index=True)
+    photo_url   = Column(Text, nullable=False)
+    status      = Column(String(20), nullable=False, default="pending")  # pending/approved/rejected
+    created_at  = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
