@@ -6,7 +6,9 @@ const authHeaders = (token) => ({
 });
 
 export const api = {
-  // ── Auth ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════
+  // Auth
+  // ═══════════════════════════════════════════════
   createUser: (data) =>
     fetch(`${BASE_URL}/users`, {
       method: "POST",
@@ -38,7 +40,9 @@ export const api = {
       headers: authHeaders(token),
     }).then((r) => r.json()),
 
-  // ── Location ──────────────────────────────────────
+  // ═══════════════════════════════════════════════
+  // Location
+  // ═══════════════════════════════════════════════
   updateLocation: (token, latitude, longitude) =>
     fetch(`${BASE_URL}/users/me/location`, {
       method: "PUT",
@@ -46,14 +50,27 @@ export const api = {
       body: JSON.stringify({ latitude, longitude }),
     }),
 
-  // ── Nearby ────────────────────────────────────────
+  // ═══════════════════════════════════════════════
+  // DOWN TONIGHT - NEW
+  // ═══════════════════════════════════════════════
+  activateDownTonight: (token) =>
+    fetch(`${BASE_URL}/users/me/down-tonight`, {
+      method: "POST",
+      headers: authHeaders(token),
+    }).then((r) => r.json()),
+
+  // ═══════════════════════════════════════════════
+  // Nearby
+  // ═══════════════════════════════════════════════
   getNearby: (token, latitude, longitude, radius_miles = 10) =>
     fetch(
       `${BASE_URL}/nearby?latitude=${latitude}&longitude=${longitude}&radius_miles=${radius_miles}`,
       { headers: authHeaders(token) }
     ).then((r) => r.json()),
 
-  // ── Proposals ─────────────────────────────────────
+  // ═══════════════════════════════════════════════
+  // Proposals
+  // ═══════════════════════════════════════════════
   sendProposal: (token, receiverId, activity_tag, message = "") =>
     fetch(`${BASE_URL}/propose`, {
       method: "POST",
@@ -78,7 +95,9 @@ export const api = {
       body: JSON.stringify({ accept }),
     }).then((r) => r.json()),
 
-  // ── Messages ──────────────────────────────────────
+  // ═══════════════════════════════════════════════
+  // Messages
+  // ═══════════════════════════════════════════════
   getMessages: (token, proposalId) =>
     fetch(`${BASE_URL}/proposals/${proposalId}/messages`, {
       headers: authHeaders(token),

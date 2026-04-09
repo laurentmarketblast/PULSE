@@ -86,6 +86,7 @@ export default function ProfileScreen() {
   const [showPreview, setShowPreview] = useState(false);
   const [showLookingFor, setShowLookingFor] = useState(false);
   const [showSexuality, setShowSexuality]   = useState(false);
+  const [activatingDownTonight, setActivatingDownTonight] = useState(false);
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -140,6 +141,37 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleActivateDownTonight = async () => {
+    Alert.alert(
+      "DOWN TONIGHT",
+      "Activate for 8 hours? You'll be visible to nearby users looking for action right now.\n\n$1.99",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Activate ($1.99)",
+          onPress: async () => {
+            setActivatingDownTonight(true);
+            try {
+              // TODO: RevenueCat payment flow will go here
+              // For now, just activate directly (free during development)
+              const result = await api.activateDownTonight(token);
+              if (result.message) {
+                Alert.alert("🔥 DOWN TONIGHT", "You're now visible as DOWN TONIGHT for 8 hours!");
+                // Refresh user data
+                const updatedUser = await api.getMe(token);
+                setUser(updatedUser, token);
+              }
+            } catch (err) {
+              Alert.alert("Error", err.message || "Could not activate");
+            } finally {
+              setActivatingDownTonight(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleSaveAll = async () => {
     if (tags.length === 0) { Alert.alert("Pick at least one tag"); return; }
     setSaving(true);
@@ -173,6 +205,9 @@ export default function ProfileScreen() {
   const toggleTag = (tag) => {
     setTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   };
+
+  // Check if DOWN TONIGHT is active
+  const downTonightActive = user.down_tonight_until && new Date(user.down_tonight_until) > new Date();
 
   return (
     <View style={s.root}>
@@ -209,6 +244,35 @@ export default function ProfileScreen() {
             )}
           </View>
           <Text style={s.photoHint}>Hold to remove · {photos.length}/{MAX_PHOTOS} photos</Text>
+
+          {/* DOWN TONIGHT SECTION - NEW */}
+          <Text style={s.sectionLabel}>DOWN TONIGHT</Text>
+          <TouchableOpacity 
+            style={[s.downTonightCard, downTonightActive && s.downTonightCardActive]} 
+            onPress={handleActivateDownTonight}
+            disabled={activatingDownTonight || downTonightActive}
+            activeOpacity={0.8}
+          >
+            {downTonightActive ? (
+              <>
+                <View style={s.downTonightBadge}>
+                  <Text style={s.downTonightBadgeText}>🔥 ACTIVE</Text>
+                </View>
+                <Text style={s.downTonightTitle}>You're DOWN TONIGHT</Text>
+                <Text style={s.downTonightSubtitle}>
+                  Expires {new Date(user.down_tonight_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={s.downTonightTitle}>🔥 Activate DOWN TONIGHT</Text>
+                <Text style={s.downTonightSubtitle}>
+                  Show nearby users you're available right now · 8 hours · $1.99
+                </Text>
+                {activatingDownTonight && <ActivityIndicator color="#FF3C50" style={{ marginTop: 8 }} />}
+              </>
+            )}
+          </TouchableOpacity>
 
           <Text style={s.sectionLabel}>BIO</Text>
           <View style={s.inputWrap}>
@@ -314,6 +378,48 @@ const s = StyleSheet.create({
   addPhotoSlot: { width: 100, height: 100, borderRadius: 50, borderWidth: 1.5, borderColor: "#1e1e1e", borderStyle: "dashed", alignItems: "center", justifyContent: "center", backgroundColor: "#0a0a0a" },
   addPhotoIcon: { color: "#FF3C50", fontSize: 28, fontWeight: "300" },
   photoHint: { color: "#1e1e1e", fontSize: 11, marginBottom: 28 },
+  
+  // DOWN TONIGHT STYLES - NEW
+  downTonightCard: { 
+    backgroundColor: "#0e0e0e", 
+    borderWidth: 1, 
+    borderColor: "#1a1a1a", 
+    borderRadius: 8, 
+    padding: 20, 
+    marginBottom: 32,
+    position: "relative",
+  },
+  downTonightCardActive: { 
+    borderColor: "rgba(255,60,80,0.4)", 
+    backgroundColor: "rgba(255,60,80,0.05)" 
+  },
+  downTonightBadge: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "#FF3C50",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  downTonightBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+  downTonightTitle: { 
+    color: "#fff", 
+    fontSize: 16, 
+    fontWeight: "700", 
+    marginBottom: 6 
+  },
+  downTonightSubtitle: { 
+    color: "#555", 
+    fontSize: 13, 
+    lineHeight: 18 
+  },
+  
   inputWrap: { backgroundColor: "#0e0e0e", borderWidth: 1, borderColor: "#1a1a1a", borderRadius: 6, padding: 14, marginBottom: 24 },
   bioInput: { color: "#fff", fontSize: 15, lineHeight: 22, minHeight: 80, textAlignVertical: "top" },
   ageInput: { color: "#fff", fontSize: 15 },
