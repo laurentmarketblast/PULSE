@@ -90,6 +90,11 @@ export default function ProfileScreen() {
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
+  const ringAnim  = useRef(new Animated.Value(1)).current;
+  const ringAnim2 = useRef(new Animated.Value(1)).current;
+
+  // Check if DOWN TONIGHT is active
+  const downTonightActive = user.down_tonight_until && new Date(user.down_tonight_until) > new Date();
 
   useEffect(() => {
     Animated.parallel([
@@ -97,6 +102,22 @@ export default function ProfileScreen() {
       Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  useEffect(() => {
+    if (downTonightActive) {
+      Animated.loop(Animated.sequence([
+        Animated.timing(ringAnim,  { toValue: 1.3, duration: 900,  useNativeDriver: true }),
+        Animated.timing(ringAnim,  { toValue: 1,   duration: 900,  useNativeDriver: true }),
+      ])).start();
+      Animated.loop(Animated.sequence([
+        Animated.timing(ringAnim2, { toValue: 1.6, duration: 1400, useNativeDriver: true }),
+        Animated.timing(ringAnim2, { toValue: 1,   duration: 1400, useNativeDriver: true }),
+      ])).start();
+    } else {
+      ringAnim.stopAnimation();  ringAnim.setValue(1);
+      ringAnim2.stopAnimation(); ringAnim2.setValue(1);
+    }
+  }, [downTonightActive]);
 
   const handleAddPhoto = async () => {
     if (photos.length >= MAX_PHOTOS) {
@@ -206,9 +227,6 @@ export default function ProfileScreen() {
     setTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
   };
 
-  // Check if DOWN TONIGHT is active
-  const downTonightActive = user.down_tonight_until && new Date(user.down_tonight_until) > new Date();
-
   return (
     <View style={s.root}>
       <StatusBar barStyle="light-content" />
@@ -248,30 +266,40 @@ export default function ProfileScreen() {
           {/* DOWN TONIGHT SECTION - NEW */}
           <Text style={s.sectionLabel}>DOWN TONIGHT</Text>
           <TouchableOpacity 
-            style={[s.downTonightCard, downTonightActive && s.downTonightCardActive]} 
+            style={[s.downTonightBtn, downTonightActive && s.downTonightBtnActive]} 
             onPress={handleActivateDownTonight}
             disabled={activatingDownTonight || downTonightActive}
-            activeOpacity={0.8}
+            activeOpacity={downTonightActive ? 1 : 0.7}
           >
-            {downTonightActive ? (
+            {downTonightActive && (
               <>
-                <View style={s.downTonightBadge}>
-                  <Text style={s.downTonightBadgeText}>🔥 ACTIVE</Text>
-                </View>
-                <Text style={s.downTonightTitle}>You're DOWN TONIGHT</Text>
-                <Text style={s.downTonightSubtitle}>
-                  Expires {new Date(user.down_tonight_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text style={s.downTonightTitle}>🔥 Activate DOWN TONIGHT</Text>
-                <Text style={s.downTonightSubtitle}>
-                  Show nearby users you're available right now · 8 hours · $1.99
-                </Text>
-                {activatingDownTonight && <ActivityIndicator color="#FF3C50" style={{ marginTop: 8 }} />}
+                <Animated.View style={[s.downRing,  { transform: [{ scale: ringAnim  }] }]} />
+                <Animated.View style={[s.downRing2, { transform: [{ scale: ringAnim2 }] }]} />
               </>
             )}
+            <View style={s.downTonightContent}>
+              <Text style={s.downTonightEmoji}>🔥</Text>
+              <View style={s.downTonightText}>
+                {downTonightActive ? (
+                  <>
+                    <Text style={s.downTonightTitle}>DOWN TONIGHT ACTIVE</Text>
+                    <Text style={s.downTonightSubtitle}>
+                      Expires at {new Date(user.down_tonight_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={s.downTonightTitle}>Activate Down Tonight</Text>
+                    <Text style={s.downTonightSubtitle}>
+                      8 hours · Top of nearby · $1.99
+                    </Text>
+                  </>
+                )}
+              </View>
+              {activatingDownTonight && (
+                <ActivityIndicator color="#FF3C50" style={{ marginLeft: "auto" }} />
+              )}
+            </View>
           </TouchableOpacity>
 
           <Text style={s.sectionLabel}>BIO</Text>
@@ -379,45 +407,65 @@ const s = StyleSheet.create({
   addPhotoIcon: { color: "#FF3C50", fontSize: 28, fontWeight: "300" },
   photoHint: { color: "#1e1e1e", fontSize: 11, marginBottom: 28 },
   
-  // DOWN TONIGHT STYLES - NEW
-  downTonightCard: { 
+  // DOWN TONIGHT STYLES - NEW (matching NearbyScreen design)
+  downTonightBtn: { 
     backgroundColor: "#0e0e0e", 
     borderWidth: 1, 
-    borderColor: "#1a1a1a", 
-    borderRadius: 8, 
-    padding: 20, 
+    borderColor: "#1e1e1e", 
+    borderRadius: 12, 
+    padding: 18, 
     marginBottom: 32,
     position: "relative",
+    overflow: "visible",
   },
-  downTonightCardActive: { 
-    borderColor: "rgba(255,60,80,0.4)", 
-    backgroundColor: "rgba(255,60,80,0.05)" 
+  downTonightBtnActive: { 
+    borderColor: "#FF3C50", 
+    backgroundColor: "rgba(255,60,80,0.08)" 
   },
-  downTonightBadge: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    backgroundColor: "#FF3C50",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+  downRing: { 
+    position: "absolute", 
+    top: -8, 
+    left: -8, 
+    right: -8, 
+    bottom: -8, 
+    borderRadius: 20, 
+    borderWidth: 1.5, 
+    borderColor: "#FF3C50", 
+    opacity: 0.45 
   },
-  downTonightBadgeText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1,
+  downRing2: { 
+    position: "absolute", 
+    top: -16, 
+    left: -16, 
+    right: -16, 
+    bottom: -16, 
+    borderRadius: 28, 
+    borderWidth: 1, 
+    borderColor: "#FF3C50", 
+    opacity: 0.15 
+  },
+  downTonightContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  downTonightEmoji: {
+    fontSize: 28,
+  },
+  downTonightText: {
+    flex: 1,
   },
   downTonightTitle: { 
     color: "#fff", 
-    fontSize: 16, 
+    fontSize: 15, 
     fontWeight: "700", 
-    marginBottom: 6 
+    letterSpacing: 0.3,
+    marginBottom: 4,
   },
   downTonightSubtitle: { 
     color: "#555", 
-    fontSize: 13, 
-    lineHeight: 18 
+    fontSize: 12, 
+    lineHeight: 16,
   },
   
   inputWrap: { backgroundColor: "#0e0e0e", borderWidth: 1, borderColor: "#1a1a1a", borderRadius: 6, padding: 14, marginBottom: 24 },
