@@ -396,10 +396,10 @@ async def activate_down_tonight(
     """
     # Set down_tonight_until to 8 hours from now
     current_user.down_tonight_until = datetime.now(timezone.utc) + timedelta(hours=8)
-    
+
     await db.commit()
     await db.refresh(current_user)
-    
+
     return {
         "message": "DOWN TONIGHT activated",
         "down_tonight_until": current_user.down_tonight_until.isoformat(),
@@ -455,41 +455,50 @@ async def get_nearby(
             User.id != current_user.id,
             ST_DWithin(UserLocation.point, caller_point, radius_m),
         )
-        .order_by(distance_col)
+        .order_by(distance_col)  # Still sort by distance in query
     )
 
     rows = (await db.execute(stmt)).all()
-    results = []
-    now = datetime.now(timezone.utc)  # For DOWN TONIGHT check
+    now = datetime.now(timezone.utc)
     
+    down_tonight_users = []
+    regular_users = []
+
     for row_user, dist_m in rows:
         row_tags = row_user.interest_tags or []
         shared   = list(set(caller_tags) & set(row_tags))
         if not shared:
             continue
-        
-        # Check if user is DOWN TONIGHT (within 8 hours)
+
+        # Check if user is DOWN TONIGHT
         is_down_tonight = False
         if row_user.down_tonight_until:
             is_down_tonight = row_user.down_tonight_until > now
-        
-        results.append(
-            NearbyUser(
-                id=row_user.id,
-                display_name=row_user.display_name,
-                avatar_url=row_user.avatar_url,
-                photo_urls=row_user.photo_urls or [],
-                interest_tags=row_tags,
-                shared_tags=shared,
-                distance_miles=round(dist_m / MILES_TO_METRES, 2),
-                looking_for=row_user.looking_for,
-                sexuality=row_user.sexuality,
-                age=row_user.age,
-                bio=row_user.bio,
-                down_tonight=is_down_tonight,  # NEW FIELD
-            )
+
+        nearby_user = NearbyUser(
+            id=row_user.id,
+            display_name=row_user.display_name,
+            avatar_url=row_user.avatar_url,
+            photo_urls=row_user.photo_urls or [],
+            interest_tags=row_tags,
+            shared_tags=shared,
+            distance_miles=round(dist_m / MILES_TO_METRES, 2),
+            looking_for=row_user.looking_for,
+            sexuality=row_user.sexuality,
+            age=row_user.age,
+            bio=row_user.bio,
+            down_tonight=is_down_tonight,
         )
-    return results
+        
+        # Separate DOWN TONIGHT users from regular users
+        # Both groups are already sorted by distance from the query
+        if is_down_tonight:
+            down_tonight_users.append(nearby_user)
+        else:
+            regular_users.append(nearby_user)
+    
+    # Return DOWN TONIGHT users first (sorted by distance), then regular users (sorted by distance)
+    return down_tonight_users + regular_users
 
 
 # ═══════════════════════════════════════════════
