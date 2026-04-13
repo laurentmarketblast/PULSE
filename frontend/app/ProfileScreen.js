@@ -8,6 +8,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useUser } from "../context/UserContext";
 import Avatar from "../components/Avatar";
 import ProfilePreviewModal from "../components/ProfilePreviewModal";
+import DownTonightModal from "../components/DownTonightModal";
 import { pickAndUploadPhoto } from "../utils/uploadPhoto";
 import { api } from "../api";
 
@@ -72,8 +73,36 @@ const pm = StyleSheet.create({
   cancelText: { color: "#444", fontSize: 15 },
 });
 
+function useDownTimer(expiresAt) {
+  const [remaining, setRemaining] = useState(0);
+  useEffect(() => {
+    if (!expiresAt) { setRemaining(0); return; }
+    const tick = () => setRemaining(Math.max(0, expiresAt - Date.now()));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  
+  const hours = Math.floor(remaining / 3600000);
+  const mins  = Math.floor((remaining % 3600000) / 60000);
+  const secs  = Math.floor((remaining % 60000) / 1000);
+  
+  let label = null;
+  if (remaining > 0) {
+    if (hours > 0) {
+      // Show "7h 23m" format when above 1 hour
+      label = `${hours}h ${mins}m`;
+    } else {
+      // Show "59:30" format for final hour
+      label = `${mins}:${String(secs).padStart(2, "0")}`;
+    }
+  }
+  
+  return { label, active: remaining > 0 };
+}
+
 export default function ProfileScreen() {
-  const { user, token, setUser, logout } = useUser();
+  const { user, token, setUser, logout, downTonightExpiresAt, isDownTonight } = useUser();
 
   const [photos, setPhotos]           = useState(user.photo_urls || []);
   const [bio, setBio]                 = useState(user.bio || "");
@@ -86,15 +115,14 @@ export default function ProfileScreen() {
   const [showPreview, setShowPreview] = useState(false);
   const [showLookingFor, setShowLookingFor] = useState(false);
   const [showSexuality, setShowSexuality]   = useState(false);
-  const [activatingDownTonight, setActivatingDownTonight] = useState(false);
+  const [showDownModal, setShowDownModal]   = useState(false);
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const ringAnim  = useRef(new Animated.Value(1)).current;
   const ringAnim2 = useRef(new Animated.Value(1)).current;
 
-  // Check if DOWN TONIGHT is active
-  const downTonightActive = user.down_tonight_until && new Date(user.down_tonight_until) > new Date();
+  const { label: timerLabel } = useDownTimer(downTonightExpiresAt);
 
   useEffect(() => {
     Animated.parallel([
@@ -104,20 +132,20 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
-    if (downTonightActive) {
+    if (isDownTonight) {
       Animated.loop(Animated.sequence([
-        Animated.timing(ringAnim,  { toValue: 1.3, duration: 900,  useNativeDriver: true }),
-        Animated.timing(ringAnim,  { toValue: 1,   duration: 900,  useNativeDriver: true }),
+        Animated.timing(ringAnim,  { toValue: 1.15, duration: 1200,  useNativeDriver: true }),
+        Animated.timing(ringAnim,  { toValue: 1,    duration: 1200,  useNativeDriver: true }),
       ])).start();
       Animated.loop(Animated.sequence([
-        Animated.timing(ringAnim2, { toValue: 1.6, duration: 1400, useNativeDriver: true }),
-        Animated.timing(ringAnim2, { toValue: 1,   duration: 1400, useNativeDriver: true }),
+        Animated.timing(ringAnim2, { toValue: 1.35, duration: 1800, useNativeDriver: true }),
+        Animated.timing(ringAnim2, { toValue: 1,    duration: 1800, useNativeDriver: true }),
       ])).start();
     } else {
       ringAnim.stopAnimation();  ringAnim.setValue(1);
       ringAnim2.stopAnimation(); ringAnim2.setValue(1);
     }
-  }, [downTonightActive]);
+  }, [isDownTonight]);
 
   const handleAddPhoto = async () => {
     if (photos.length >= MAX_PHOTOS) {
@@ -160,37 +188,6 @@ export default function ProfileScreen() {
     } catch {
       Alert.alert("Error", "Could not save.");
     }
-  };
-
-  const handleActivateDownTonight = async () => {
-    Alert.alert(
-      "DOWN TONIGHT",
-      "Activate for 8 hours? You'll be visible to nearby users looking for action right now.\n\n$1.99",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Activate ($1.99)",
-          onPress: async () => {
-            setActivatingDownTonight(true);
-            try {
-              // TODO: RevenueCat payment flow will go here
-              // For now, just activate directly (free during development)
-              const result = await api.activateDownTonight(token);
-              if (result.message) {
-                Alert.alert("🔥 DOWN TONIGHT", "You're now visible as DOWN TONIGHT for 8 hours!");
-                // Refresh user data
-                const updatedUser = await api.getMe(token);
-                setUser(updatedUser, token);
-              }
-            } catch (err) {
-              Alert.alert("Error", err.message || "Could not activate");
-            } finally {
-              setActivatingDownTonight(false);
-            }
-          }
-        }
-      ]
-    );
   };
 
   const handleSaveAll = async () => {
@@ -263,41 +260,30 @@ export default function ProfileScreen() {
           </View>
           <Text style={s.photoHint}>Hold to remove · {photos.length}/{MAX_PHOTOS} photos</Text>
 
-          {/* DOWN TONIGHT SECTION - NEW */}
+          {/* DOWN TONIGHT SECTION - Matching NearbyScreen design */}
           <Text style={s.sectionLabel}>DOWN TONIGHT</Text>
           <TouchableOpacity 
-            style={[s.downTonightBtn, downTonightActive && s.downTonightBtnActive]} 
-            onPress={handleActivateDownTonight}
-            disabled={activatingDownTonight || downTonightActive}
-            activeOpacity={downTonightActive ? 1 : 0.7}
+            style={[s.downBtn, isDownTonight && s.downBtnActive]} 
+            onPress={() => !isDownTonight && setShowDownModal(true)}
+            disabled={isDownTonight}
+            activeOpacity={isDownTonight ? 1 : 0.7}
           >
-            {downTonightActive && (
+            {isDownTonight && (
               <>
                 <Animated.View style={[s.downRing,  { transform: [{ scale: ringAnim  }] }]} />
                 <Animated.View style={[s.downRing2, { transform: [{ scale: ringAnim2 }] }]} />
               </>
             )}
-            <View style={s.downTonightContent}>
-              <Text style={s.downTonightEmoji}>🔥</Text>
-              <View style={s.downTonightText}>
-                {downTonightActive ? (
-                  <>
-                    <Text style={s.downTonightTitle}>DOWN TONIGHT ACTIVE</Text>
-                    <Text style={s.downTonightSubtitle}>
-                      Expires at {new Date(user.down_tonight_until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={s.downTonightTitle}>Activate Down Tonight</Text>
-                    <Text style={s.downTonightSubtitle}>
-                      8 hours · Top of nearby · $1.99
-                    </Text>
-                  </>
-                )}
-              </View>
-              {activatingDownTonight && (
-                <ActivityIndicator color="#FF3C50" style={{ marginLeft: "auto" }} />
+            <Text style={s.downBtnEmoji}>🔥</Text>
+            <View style={s.downBtnTextWrap}>
+              <Text style={[s.downBtnLabel, isDownTonight && s.downBtnLabelActive]}>
+                {isDownTonight ? "DOWN TONIGHT ACTIVE" : "Activate Down Tonight"}
+              </Text>
+              {isDownTonight && timerLabel && (
+                <Text style={s.downBtnTimer}>{timerLabel} remaining</Text>
+              )}
+              {!isDownTonight && (
+                <Text style={s.downBtnSubtitle}>8 hours · Top of nearby · $1.99</Text>
               )}
             </View>
           </TouchableOpacity>
@@ -386,6 +372,7 @@ export default function ProfileScreen() {
         user={{ ...user, bio, age: age ? parseInt(age) : null, looking_for: lookingFor, sexuality, interest_tags: tags, photo_urls: photos }}
         onClose={() => setShowPreview(false)}
       />
+      <DownTonightModal visible={showDownModal} onClose={() => setShowDownModal(false)} />
     </View>
   );
 }
@@ -407,18 +394,22 @@ const s = StyleSheet.create({
   addPhotoIcon: { color: "#FF3C50", fontSize: 28, fontWeight: "300" },
   photoHint: { color: "#1e1e1e", fontSize: 11, marginBottom: 28 },
   
-  // DOWN TONIGHT STYLES - NEW (matching NearbyScreen design)
-  downTonightBtn: { 
+  // DOWN TONIGHT STYLES - Matching NearbyScreen header button
+  downBtn: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    gap: 14, 
     backgroundColor: "#0e0e0e", 
     borderWidth: 1, 
     borderColor: "#1e1e1e", 
     borderRadius: 12, 
-    padding: 18, 
+    paddingHorizontal: 16, 
+    paddingVertical: 16, 
     marginBottom: 32,
     position: "relative",
     overflow: "visible",
   },
-  downTonightBtnActive: { 
+  downBtnActive: { 
     borderColor: "#FF3C50", 
     backgroundColor: "rgba(255,60,80,0.08)" 
   },
@@ -444,28 +435,24 @@ const s = StyleSheet.create({
     borderColor: "#FF3C50", 
     opacity: 0.15 
   },
-  downTonightContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  downTonightEmoji: {
-    fontSize: 28,
-  },
-  downTonightText: {
-    flex: 1,
-  },
-  downTonightTitle: { 
-    color: "#fff", 
-    fontSize: 15, 
+  downBtnEmoji: { fontSize: 24 },
+  downBtnTextWrap: { flex: 1 },
+  downBtnLabel: { 
+    color: "#666", 
+    fontSize: 14, 
     fontWeight: "700", 
     letterSpacing: 0.3,
     marginBottom: 4,
   },
-  downTonightSubtitle: { 
-    color: "#555", 
-    fontSize: 12, 
-    lineHeight: 16,
+  downBtnLabelActive: { color: "#FF3C50" },
+  downBtnTimer: {
+    color: "#FF3C50",
+    fontSize: 12,
+    opacity: 0.8,
+  },
+  downBtnSubtitle: { 
+    color: "#333", 
+    fontSize: 11,
   },
   
   inputWrap: { backgroundColor: "#0e0e0e", borderWidth: 1, borderColor: "#1a1a1a", borderRadius: 6, padding: 14, marginBottom: 24 },

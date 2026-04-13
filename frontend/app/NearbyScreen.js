@@ -9,6 +9,7 @@ import * as Location from "expo-location";
 import { api } from "../api";
 import { useUser } from "../context/UserContext";
 import Avatar from "../components/Avatar";
+import DownTonightModal from "../components/DownTonightModal";
 
 const { width, height } = Dimensions.get("window");
 const SWIPE_THRESHOLD = width * 0.35;
@@ -60,7 +61,7 @@ function FullProfileSheet({ person, visible, onClose, onPropose }) {
                 )}
                 {person.sexuality && (
                   <View style={fp.chip}>
-                    <Text style={fp.chipIcon}>✦</Text>
+                    <Text style={fp.chipIcon}>✨</Text>
                     <View><Text style={fp.chipLabel}>SEXUALITY</Text><Text style={fp.chipValue}>{person.sexuality}</Text></View>
                   </View>
                 )}
@@ -167,6 +168,12 @@ function UserCard({ person, onPropose, onViewProfile }) {
       <LinearGradient colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.97)"]} style={card.gradient} pointerEvents="none" />
       <View style={card.distBadge} pointerEvents="none"><Text style={card.distText}>{person.distance_miles} mi</Text></View>
       {totalPhotos > 1 && <View style={card.photoCtr} pointerEvents="none"><Text style={card.photoCtrText}>{photoIndex + 1}/{totalPhotos}</Text></View>}
+      {person.down_tonight && (
+        <View style={card.downBadge} pointerEvents="none">
+          <Text style={card.downBadgeEmoji}>🔥</Text>
+          <Text style={card.downBadgeText}>DOWN</Text>
+        </View>
+      )}
       <View style={card.info} pointerEvents="none">
         <View style={card.nameRow}>
           <Text style={card.name}>{person.display_name}</Text>
@@ -205,6 +212,9 @@ const card = StyleSheet.create({
   distText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   photoCtr: { position: "absolute", top: 36, left: 16, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, zIndex: 10 },
   photoCtrText: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" },
+  downBadge: { position: "absolute", top: 68, left: 16, backgroundColor: "rgba(255,60,80,0.95)", borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 4, zIndex: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
+  downBadgeEmoji: { fontSize: 12 },
+  downBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
   info: { position: "absolute", bottom: 72, left: 0, right: 0, padding: 20, zIndex: 7 },
   nameRow: { flexDirection: "row", alignItems: "baseline", gap: 10, marginBottom: 4 },
   name: { color: "#fff", fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
@@ -278,80 +288,6 @@ const sw = StyleSheet.create({
   nopeText: { color: "#444", fontWeight: "900", fontSize: 22, letterSpacing: 3 },
 });
 
-function DownTonightPaywall({ visible, onClose, onPurchase }) {
-  const slideAnim = useRef(new Animated.Value(600)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1,    duration: 800, useNativeDriver: true }),
-      ])).start();
-    } else {
-      Animated.timing(slideAnim, { toValue: 600, duration: 220, useNativeDriver: true }).start();
-    }
-  }, [visible]);
-
-  return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <View style={pay.overlay}>
-        <TouchableOpacity style={pay.backdrop} onPress={onClose} activeOpacity={1} />
-        <Animated.View style={[pay.sheet, { transform: [{ translateY: slideAnim }] }]}>
-          <View style={pay.handle} />
-          <View style={pay.iconWrap}>
-            <Animated.View style={[pay.iconRing,  { transform: [{ scale: pulseAnim }] }]} />
-            <Animated.View style={[pay.iconRing2, { transform: [{ scale: pulseAnim }], opacity: 0.25 }]} />
-            <Text style={pay.iconEmoji}>🔥</Text>
-          </View>
-          <Text style={pay.title}>Down Tonight</Text>
-          <Text style={pay.subtitle}>Your profile jumps to the top of everyone nearby with a live pulse ring. They know you're available <Text style={pay.subtitleBold}>right now.</Text></Text>
-          {[
-            { icon: "⚡", text: "Pinned to top of nearby for 2 hours" },
-            { icon: "💫", text: "Animated pulse ring around your card" },
-            { icon: "🔴", text: "Live \"Down Tonight\" badge on your profile" },
-            { icon: "⏱️", text: "Auto-expires — no recurring charge" },
-          ].map((p, i) => (
-            <View key={i} style={pay.perk}>
-              <Text style={pay.perkIcon}>{p.icon}</Text>
-              <Text style={pay.perkText}>{p.text}</Text>
-            </View>
-          ))}
-          <TouchableOpacity style={pay.buyBtn} onPress={onPurchase} activeOpacity={0.85}>
-            <LinearGradient colors={["#FF3C50", "#C0183B"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={pay.buyBtnGrad}>
-              <Text style={pay.buyBtnPrice}>$1.99</Text>
-              <Text style={pay.buyBtnLabel}>Activate for 2 hours</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <Text style={pay.disclaimer}>One-time charge · Expires automatically · Not a subscription</Text>
-        </Animated.View>
-      </View>
-    </Modal>
-  );
-}
-
-const pay = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.88)" },
-  sheet: { backgroundColor: "#080808", borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: "#1a1a1a", padding: 28, paddingBottom: 44 },
-  handle: { width: 36, height: 4, backgroundColor: "#1e1e1e", borderRadius: 2, alignSelf: "center", marginBottom: 28 },
-  iconWrap: { alignSelf: "center", width: 80, height: 80, alignItems: "center", justifyContent: "center", marginBottom: 20 },
-  iconRing: { position: "absolute", width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: "#FF3C50", opacity: 0.5 },
-  iconRing2: { position: "absolute", width: 108, height: 108, borderRadius: 54, borderWidth: 1.5, borderColor: "#FF3C50" },
-  iconEmoji: { fontSize: 36 },
-  title: { color: "#fff", fontSize: 26, fontWeight: "900", textAlign: "center", letterSpacing: -0.5, marginBottom: 12 },
-  subtitle: { color: "#555", fontSize: 14, lineHeight: 21, textAlign: "center", marginBottom: 28 },
-  subtitleBold: { color: "#FF3C50", fontWeight: "700" },
-  perk: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 14 },
-  perkIcon: { fontSize: 18, width: 28, textAlign: "center" },
-  perkText: { color: "#777", fontSize: 14, flex: 1 },
-  buyBtn: { borderRadius: 14, overflow: "hidden", marginTop: 16, marginBottom: 14 },
-  buyBtnGrad: { paddingVertical: 20, alignItems: "center" },
-  buyBtnPrice: { color: "#fff", fontSize: 24, fontWeight: "900", letterSpacing: -0.5 },
-  buyBtnLabel: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 3 },
-  disclaimer: { color: "#252525", fontSize: 11, textAlign: "center" },
-});
-
 function useDownTimer(expiresAt) {
   const [remaining, setRemaining] = useState(0);
   useEffect(() => {
@@ -361,26 +297,38 @@ function useDownTimer(expiresAt) {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [expiresAt]);
-  const mins  = Math.floor(remaining / 60000);
+  
+  const hours = Math.floor(remaining / 3600000);
+  const mins  = Math.floor((remaining % 3600000) / 60000);
   const secs  = Math.floor((remaining % 60000) / 1000);
-  const label = remaining > 0 ? `${mins}:${String(secs).padStart(2, "0")}` : null;
-  const pct   = expiresAt ? remaining / (2 * 60 * 60 * 1000) : 0;
+  
+  let label = null;
+  if (remaining > 0) {
+    if (hours > 0) {
+      // Show "7h 23m" format when above 1 hour
+      label = `${hours}h ${mins}m`;
+    } else {
+      // Show "59:30" format for final hour
+      label = `${mins}:${String(secs).padStart(2, "0")}`;
+    }
+  }
+  
+  const pct = expiresAt ? remaining / (8 * 60 * 60 * 1000) : 0;
   return { label, active: remaining > 0, pct: Math.min(1, pct) };
 }
 
 export default function NearbyScreen({ onSendProposal }) {
-  const { token }                           = useUser();
+  const { token, downTonightExpiresAt, isDownTonight } = useUser();
   const [people, setPeople]                 = useState([]);
   const [loading, setLoading]               = useState(true);
   const [showPaywall, setShowPaywall]       = useState(false);
-  const [downExpiresAt, setDownExpiresAt]   = useState(null);
 
-  const { label: timerLabel, active: isDown, pct: timerPct } = useDownTimer(downExpiresAt);
+  const { label: timerLabel, active: isDown, pct: timerPct } = useDownTimer(downTonightExpiresAt);
   const ringAnim  = useRef(new Animated.Value(1)).current;
   const ringAnim2 = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (isDown) {
+    if (isDownTonight) {
       Animated.loop(Animated.sequence([
         Animated.timing(ringAnim,  { toValue: 1.3, duration: 900,  useNativeDriver: true }),
         Animated.timing(ringAnim,  { toValue: 1,   duration: 900,  useNativeDriver: true }),
@@ -393,7 +341,7 @@ export default function NearbyScreen({ onSendProposal }) {
       ringAnim.stopAnimation();  ringAnim.setValue(1);
       ringAnim2.stopAnimation(); ringAnim2.setValue(1);
     }
-  }, [isDown]);
+  }, [isDownTonight]);
 
   const fetchNearby = async () => {
     setLoading(true);
@@ -423,13 +371,13 @@ export default function NearbyScreen({ onSendProposal }) {
       <View style={s.header}>
         <Text style={s.headerTitle}>PULSE</Text>
         <View style={s.headerRight}>
-          <TouchableOpacity style={[s.downBtn, isDown && s.downBtnActive]} onPress={() => !isDown && setShowPaywall(true)} activeOpacity={isDown ? 1 : 0.8}>
-            {isDown && <>
+          <TouchableOpacity style={[s.downBtn, isDownTonight && s.downBtnActive]} onPress={() => !isDownTonight && setShowPaywall(true)} activeOpacity={isDownTonight ? 1 : 0.8}>
+            {isDownTonight && <>
               <Animated.View style={[s.downRing,  { transform: [{ scale: ringAnim  }] }]} />
               <Animated.View style={[s.downRing2, { transform: [{ scale: ringAnim2 }] }]} />
             </>}
             <Text style={s.downBtnEmoji}>🔥</Text>
-            <Text style={[s.downBtnLabel, isDown && s.downBtnLabelActive]}>{isDown ? timerLabel : "Down?"}</Text>
+            <Text style={[s.downBtnLabel, isDownTonight && s.downBtnLabelActive]}>{isDownTonight ? timerLabel : "Down?"}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.refreshBtn} onPress={fetchNearby}>
             <Text style={s.refreshText}>↻</Text>
@@ -437,7 +385,7 @@ export default function NearbyScreen({ onSendProposal }) {
         </View>
       </View>
 
-      {isDown && (
+      {isDownTonight && (
         <View style={s.timerWrap}>
           <View style={s.timerBg}><View style={[s.timerFill, { width: `${timerPct * 100}%` }]} /></View>
           <Text style={s.timerLabel}>🔴 Boost active · {timerLabel} remaining</Text>
@@ -479,7 +427,7 @@ export default function NearbyScreen({ onSendProposal }) {
         <View style={s.hint}><Text style={s.hintText}>← pass · tap center for profile · propose →</Text></View>
       )}
 
-      <DownTonightPaywall visible={showPaywall} onClose={() => setShowPaywall(false)} onPurchase={() => { setShowPaywall(false); setDownExpiresAt(Date.now() + 2 * 60 * 60 * 1000); Alert.alert("🔥 You're Down Tonight!", "Your profile is boosted for 2 hours."); }} />
+      <DownTonightModal visible={showPaywall} onClose={() => setShowPaywall(false)} />
     </View>
   );
 }
