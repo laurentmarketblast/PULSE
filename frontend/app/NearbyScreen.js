@@ -238,25 +238,28 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
   const likeOpacity = position.x.interpolate({ inputRange: [0, width * 0.25], outputRange: [0, 1], extrapolate: "clamp" });
   const nopeOpacity = position.x.interpolate({ inputRange: [-width * 0.25, 0], outputRange: [1, 0], extrapolate: "clamp" });
 
-  // Pulsing ring animation for DOWN TONIGHT
-  const ringAnim = useRef(new Animated.Value(1)).current;
-  const ringAnim2 = useRef(new Animated.Value(1)).current;
+  // Holographic shimmer for DOWN TONIGHT
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (person.down_tonight && isTop) {
-      Animated.loop(Animated.sequence([
-        Animated.timing(ringAnim,  { toValue: 1.05, duration: 1500, useNativeDriver: true }),
-        Animated.timing(ringAnim,  { toValue: 1,    duration: 1500, useNativeDriver: true }),
-      ])).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(ringAnim2, { toValue: 1.1, duration: 2000, useNativeDriver: true }),
-        Animated.timing(ringAnim2, { toValue: 1,   duration: 2000, useNativeDriver: true }),
-      ])).start();
+      Animated.loop(
+        Animated.timing(shimmerAnim, {
+          toValue: 1,
+          duration: 2000, // Faster
+          useNativeDriver: true,
+        })
+      ).start();
     } else {
-      ringAnim.stopAnimation(); ringAnim.setValue(1);
-      ringAnim2.stopAnimation(); ringAnim2.setValue(1);
+      shimmerAnim.stopAnimation();
+      shimmerAnim.setValue(0);
     }
   }, [person.down_tonight, isTop]);
+
+  const shimmerTranslate = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-width * 2, width * 2],
+  });
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false,
@@ -293,8 +296,25 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
     <Animated.View style={[sw.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }], zIndex: 20 }]} {...panResponder.panHandlers}>
       {person.down_tonight && (
         <>
-          <Animated.View style={[sw.downRing, { transform: [{ scale: ringAnim }] }]} />
-          <Animated.View style={[sw.downRing2, { transform: [{ scale: ringAnim2 }] }]} />
+          <View style={sw.downGlow} pointerEvents="none" />
+          <View style={sw.holoContainer} pointerEvents="none">
+            <Animated.View style={{ transform: [{ translateX: shimmerTranslate }, { rotate: "20deg" }] }}>
+              <LinearGradient
+                colors={[
+                  "transparent",
+                  "rgba(255,255,255,0.4)",
+                  "rgba(255,150,200,0.5)",
+                  "rgba(255,60,80,0.6)",
+                  "rgba(255,150,200,0.5)",
+                  "rgba(255,255,255,0.4)",
+                  "transparent",
+                ]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={sw.holoShimmer}
+              />
+            </Animated.View>
+          </View>
         </>
       )}
       <Animated.View style={[sw.stamp, sw.likeStamp, { opacity: likeOpacity }]}><Text style={sw.likeText}>DOWN</Text></Animated.View>
@@ -307,29 +327,36 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
 
 const sw = StyleSheet.create({
   card: { position: "absolute", width: width - 32, height: height * 0.72, top: 0 },
-  downRing: { 
+  downGlow: { 
     position: "absolute", 
-    top: -12, 
-    left: -12, 
-    right: -12, 
-    bottom: -12, 
-    borderRadius: 32, 
-    borderWidth: 3, 
-    borderColor: "#FF3C50", 
-    opacity: 0.6,
-    zIndex: 1,
-  },
-  downRing2: { 
-    position: "absolute", 
-    top: -24, 
-    left: -24, 
-    right: -24, 
-    bottom: -24, 
-    borderRadius: 44, 
+    top: -8, 
+    left: -8, 
+    right: -8, 
+    bottom: -8, 
+    borderRadius: 28, 
     borderWidth: 2, 
     borderColor: "#FF3C50", 
-    opacity: 0.3,
-    zIndex: 0,
+    shadowColor: "#FF3C50",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  holoContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  holoShimmer: {
+    position: "absolute",
+    top: -200,
+    left: -100,
+    width: width * 1.5,
+    height: height,
   },
   stamp: { position: "absolute", top: 36, zIndex: 99, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, borderWidth: 2 },
   likeStamp: { left: 20, borderColor: "#FF3C50", backgroundColor: "rgba(255,60,80,0.1)", transform: [{ rotate: "-15deg" }] },
