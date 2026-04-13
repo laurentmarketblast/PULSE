@@ -212,9 +212,9 @@ const card = StyleSheet.create({
   distText: { color: "#fff", fontSize: 12, fontWeight: "600" },
   photoCtr: { position: "absolute", top: 36, left: 16, backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 12, paddingHorizontal: 8, paddingVertical: 4, zIndex: 10 },
   photoCtrText: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" },
-  downBadge: { position: "absolute", top: 68, left: 16, backgroundColor: "rgba(255,60,80,0.95)", borderRadius: 16, paddingHorizontal: 10, paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 4, zIndex: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
-  downBadgeEmoji: { fontSize: 12 },
-  downBadgeText: { color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  downBadge: { position: "absolute", top: 68, left: 16, backgroundColor: "#FF3C50", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, zIndex: 10, borderWidth: 2, borderColor: "#fff", shadowColor: "#FF3C50", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 8 },
+  downBadgeEmoji: { fontSize: 16 },
+  downBadgeText: { color: "#fff", fontSize: 12, fontWeight: "900", letterSpacing: 1.5 },
   info: { position: "absolute", bottom: 72, left: 0, right: 0, padding: 20, zIndex: 7 },
   nameRow: { flexDirection: "row", alignItems: "baseline", gap: 10, marginBottom: 4 },
   name: { color: "#fff", fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
@@ -237,6 +237,26 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
   const rotate = position.x.interpolate({ inputRange: [-width / 2, 0, width / 2], outputRange: ["-12deg", "0deg", "12deg"], extrapolate: "clamp" });
   const likeOpacity = position.x.interpolate({ inputRange: [0, width * 0.25], outputRange: [0, 1], extrapolate: "clamp" });
   const nopeOpacity = position.x.interpolate({ inputRange: [-width * 0.25, 0], outputRange: [1, 0], extrapolate: "clamp" });
+
+  // Pulsing ring animation for DOWN TONIGHT
+  const ringAnim = useRef(new Animated.Value(1)).current;
+  const ringAnim2 = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (person.down_tonight && isTop) {
+      Animated.loop(Animated.sequence([
+        Animated.timing(ringAnim,  { toValue: 1.05, duration: 1500, useNativeDriver: true }),
+        Animated.timing(ringAnim,  { toValue: 1,    duration: 1500, useNativeDriver: true }),
+      ])).start();
+      Animated.loop(Animated.sequence([
+        Animated.timing(ringAnim2, { toValue: 1.1, duration: 2000, useNativeDriver: true }),
+        Animated.timing(ringAnim2, { toValue: 1,   duration: 2000, useNativeDriver: true }),
+      ])).start();
+    } else {
+      ringAnim.stopAnimation(); ringAnim.setValue(1);
+      ringAnim2.stopAnimation(); ringAnim2.setValue(1);
+    }
+  }, [person.down_tonight, isTop]);
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false,
@@ -271,6 +291,12 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
 
   return (
     <Animated.View style={[sw.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }], zIndex: 20 }]} {...panResponder.panHandlers}>
+      {person.down_tonight && (
+        <>
+          <Animated.View style={[sw.downRing, { transform: [{ scale: ringAnim }] }]} />
+          <Animated.View style={[sw.downRing2, { transform: [{ scale: ringAnim2 }] }]} />
+        </>
+      )}
       <Animated.View style={[sw.stamp, sw.likeStamp, { opacity: likeOpacity }]}><Text style={sw.likeText}>DOWN</Text></Animated.View>
       <Animated.View style={[sw.stamp, sw.nopeStamp, { opacity: nopeOpacity }]}><Text style={sw.nopeText}>PASS</Text></Animated.View>
       <UserCard person={person} onPropose={onPropose} onViewProfile={() => setShowProfile(true)} />
@@ -281,6 +307,30 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
 
 const sw = StyleSheet.create({
   card: { position: "absolute", width: width - 32, height: height * 0.72, top: 0 },
+  downRing: { 
+    position: "absolute", 
+    top: -12, 
+    left: -12, 
+    right: -12, 
+    bottom: -12, 
+    borderRadius: 32, 
+    borderWidth: 3, 
+    borderColor: "#FF3C50", 
+    opacity: 0.6,
+    zIndex: 1,
+  },
+  downRing2: { 
+    position: "absolute", 
+    top: -24, 
+    left: -24, 
+    right: -24, 
+    bottom: -24, 
+    borderRadius: 44, 
+    borderWidth: 2, 
+    borderColor: "#FF3C50", 
+    opacity: 0.3,
+    zIndex: 0,
+  },
   stamp: { position: "absolute", top: 36, zIndex: 99, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, borderWidth: 2 },
   likeStamp: { left: 20, borderColor: "#FF3C50", backgroundColor: "rgba(255,60,80,0.1)", transform: [{ rotate: "-15deg" }] },
   nopeStamp: { right: 20, borderColor: "#333", backgroundColor: "rgba(0,0,0,0.4)", transform: [{ rotate: "15deg" }] },
@@ -384,13 +434,6 @@ export default function NearbyScreen({ onSendProposal }) {
           </TouchableOpacity>
         </View>
       </View>
-
-      {isDownTonight && (
-        <View style={s.timerWrap}>
-          <View style={s.timerBg}><View style={[s.timerFill, { width: `${timerPct * 100}%` }]} /></View>
-          <Text style={s.timerLabel}>🔴 Boost active · {timerLabel} remaining</Text>
-        </View>
-      )}
 
       <View style={s.cardArea}>
         {loading ? (
