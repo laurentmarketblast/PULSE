@@ -443,6 +443,25 @@ async def update_location(
 
 
 # ═══════════════════════════════════════════════════
+# DOWN TONIGHT
+# ═══════════════════════════════════════════════════
+
+@app.post("/users/me/down-tonight")
+async def activate_down_tonight(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Activate DOWN TONIGHT for 8 hours"""
+    current_user.down_tonight_until = datetime.now(timezone.utc) + timedelta(hours=8)
+    await db.commit()
+    await db.refresh(current_user)
+    return {
+        "down_tonight": True,
+        "expires_at": current_user.down_tonight_until.isoformat()
+    }
+
+
+# ═══════════════════════════════════════════════════
 # NEARBY
 # ═══════════════════════════════════════════════════
 
