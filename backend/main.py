@@ -484,7 +484,7 @@ async def get_nearby(
         if not shared:
             continue
         
-        is_down_tonight = row_user.down_tonight_expires_at is not None and row_user.down_tonight_expires_at > datetime.now(timezone.utc)
+        is_down_tonight = row_user.down_tonight_until is not None and row_user.down_tonight_until > datetime.now(timezone.utc)
         
         nearby_user = NearbyUser(
             id=row_user.id,

@@ -56,6 +56,9 @@ class User(Base):
     boosted_until      = Column(DateTime(timezone=True), nullable=True)
     last_active_at     = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
+    # Holographic shimmer color (extracted from first uploaded photo)
+    shimmer_color = Column(String(7), nullable=True, default="#FF3C50")
+    
     # Relationship type
     relationship_type = Column(String(50), nullable=True)  # single/couple/poly/open
 
