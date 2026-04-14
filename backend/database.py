@@ -1,37 +1,51 @@
 """
-Pulse App — Database engine & session factory
+Pulse App — Database setup with async SQLAlchemy
 """
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
-
-from models import Base
-
-from dotenv import load_dotenv
 import os
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-load_dotenv()
+# Get DATABASE_URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+
+# Create async engine with proper connection pooling
 engine = create_async_engine(
     DATABASE_URL,
-    echo=False,          # set True to log SQL during development
-    poolclass=NullPool,  # Supabase uses PgBouncer; NullPool avoids conflicts
+    echo=False,          # Set True to log SQL during development
+    pool_size=5,         # Max 5 persistent connections
+    max_overflow=10,     # Allow 10 additional connections when needed
+    pool_pre_ping=True,  # Verify connections before using them
+    pool_recycle=3600,   # Recycle connections after 1 hour
 )
 
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
+# Session factory
+async_session = sessionmaker(
+    engine,
     class_=AsyncSession,
     expire_on_commit=False,
 )
 
+# Base class for models
+Base = declarative_base()
 
-async def create_tables() -> None:
-    """Create all tables (dev helper — use Alembic in production)."""
+
+async def get_db():
+    """
+    Dependency to get database session.
+    Usage: db: AsyncSession = Depends(get_db)
+    """
+    async with async_session() as session:
+        yield session
+
+
+async def create_tables():
+    """
+    Create all tables defined in models.
+    Called during app startup.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-
-async def get_db() -> AsyncSession:          # FastAPI dependency
-    async with AsyncSessionLocal() as session:
-        yield session
