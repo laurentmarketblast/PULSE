@@ -37,9 +37,42 @@ import io
 
 logger = logging.getLogger("pulse")
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
+# COLOR EXTRACTION
+# ═══════════════════════════════════════════════════
+
+def extract_dominant_color(img: Image.Image) -> str:
+    """
+    Extract dominant color from image and return as hex string.
+    Uses quantization to find the most common color.
+    """
+    # Resize to small size for faster processing
+    img_small = img.copy()
+    img_small.thumbnail((150, 150))
+    
+    # Convert to RGB if needed
+    if img_small.mode != 'RGB':
+        img_small = img_small.convert('RGB')
+    
+    # Reduce colors to find dominant one
+    img_quantized = img_small.quantize(colors=5)
+    palette = img_quantized.getpalette()
+    color_counts = img_quantized.getcolors()
+    
+    # Get most common color
+    dominant_color_index = max(color_counts, key=lambda x: x[0])[1]
+    
+    # Get RGB values from palette
+    r = palette[dominant_color_index * 3]
+    g = palette[dominant_color_index * 3 + 1]
+    b = palette[dominant_color_index * 3 + 2]
+    
+    # Convert to hex
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+# ═══════════════════════════════════════════════════
 # JWT CONFIG
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 SECRET_KEY = os.getenv("JWT_SECRET")
 if not SECRET_KEY:
@@ -55,9 +88,9 @@ PROPOSAL_TTL_MINUTES = 43200  # 30 days
 MILES_TO_METRES      = 1609.344
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # JWT HELPERS
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 def create_access_token(user_id: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -87,9 +120,9 @@ async def get_current_user(
     return user
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # APP
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -119,9 +152,9 @@ app.add_middleware(
 )
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # AUTH SCHEMAS
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 class TokenOut(BaseModel):
     access_token: str
@@ -145,16 +178,16 @@ class UserUpdate(BaseModel):
     age:           Optional[int]       = None
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # AUTH ENDPOINTS
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 @app.post("/users", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("10/minute")
 async def create_user(request: Request, payload: UserCreate, db: AsyncSession = Depends(get_db)):
     # Normalize username
     normalized_username = payload.username.lower().strip()
-
+    
     existing = await db.scalar(select(User).where(User.username == normalized_username))
     if existing:
         raise HTTPException(status_code=409, detail="Username already taken.")
@@ -166,7 +199,7 @@ async def create_user(request: Request, payload: UserCreate, db: AsyncSession = 
 
     # Set normalized username
     user_data["username"] = normalized_username
-
+    
     user = User(**user_data)
     user.hashed_password = pwd_context.hash(raw_password)
     db.add(user)
@@ -217,56 +250,66 @@ async def upload_photo(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload a profile photo (max 6 photos per user)"""
-
+    
     # Validate file type
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(status_code=400, detail="Invalid file type. Only JPEG, PNG, and WebP allowed.")
-
+    
     # Validate file size (10MB max)
     file_content = await file.read()
     if len(file_content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Maximum size is 10MB.")
-
+    
     # Check photo limit
     if len(current_user.photo_urls) >= 6:
         raise HTTPException(status_code=400, detail="Maximum 6 photos allowed.")
-
+    
     try:
         # Resize and compress image
         img = Image.open(io.BytesIO(file_content))
-
+        
         # Convert RGBA to RGB if needed
         if img.mode == 'RGBA':
             img = img.convert('RGB')
-
+        
         # Resize maintaining aspect ratio
         img.thumbnail((1080, 1080), Image.Resampling.LANCZOS)
-
+        
         # Save to bytes
         img_bytes = io.BytesIO()
         img.save(img_bytes, format='JPEG', quality=85, optimize=True)
         img_bytes.seek(0)
-
+        
         # Upload to Supabase Storage
         supabase = get_supabase_client()
         file_path = f"{current_user.id}/{uuid.uuid4()}.jpg"
-
+        
         bucket = supabase.storage.from_("avatar")
         bucket.upload(file_path, img_bytes.getvalue(), {
             "content-type": "image/jpeg",
             "upsert": "false"
         })
-
+        
         # Get public URL
         public_url = bucket.get_public_url(file_path)
-
+        
+        # Extract dominant color for holographic shimmer (only for first photo)
+        if len(current_user.photo_urls) == 0:
+            try:
+                dominant_color = extract_dominant_color(img)
+                current_user.shimmer_color = dominant_color
+                logger.info(f"Extracted shimmer color: {dominant_color} for user {current_user.id}")
+            except Exception as e:
+                logger.warning(f"Color extraction failed: {e}, using default")
+                current_user.shimmer_color = "#FF3C50"
+        
         # Add to user's photo_urls
         current_user.photo_urls = current_user.photo_urls + [public_url]
         await db.commit()
         await db.refresh(current_user)
-
-        return {"url": public_url, "total_photos": len(current_user.photo_urls)}
-
+        
+        return {"url": public_url, "total_photos": len(current_user.photo_urls), "shimmer_color": current_user.shimmer_color}
+    
     except Exception as e:
         logger.error(f"Photo upload failed: {e}")
         raise HTTPException(status_code=500, detail="Photo upload failed")
@@ -281,13 +324,13 @@ async def delete_photo(
     """Delete a profile photo"""
     if photo_url not in current_user.photo_urls:
         raise HTTPException(status_code=404, detail="Photo not found.")
-
+    
     # Remove from array
     current_user.photo_urls = [url for url in current_user.photo_urls if url != photo_url]
     await db.commit()
-
+    
     # TODO: Delete from Supabase Storage (optional - storage costs are minimal)
-
+    
     return {"message": "Photo deleted", "total_photos": len(current_user.photo_urls)}
 
 
@@ -334,7 +377,7 @@ async def block_user(
     """Block another user"""
     if current_user.id == payload.blocked_id:
         raise HTTPException(status_code=400, detail="Cannot block yourself.")
-
+    
     # Check if already blocked
     existing = await db.scalar(
         select(UserBlock).where(
@@ -344,7 +387,7 @@ async def block_user(
     )
     if existing:
         raise HTTPException(status_code=409, detail="User already blocked.")
-
+    
     block = UserBlock(blocker_id=current_user.id, blocked_id=payload.blocked_id)
     db.add(block)
     await db.commit()
@@ -366,7 +409,7 @@ async def report_user(
     """Report another user for misconduct"""
     if current_user.id == payload.reported_id:
         raise HTTPException(status_code=400, detail="Cannot report yourself.")
-
+    
     report = UserReport(
         reporter_id=current_user.id,
         reported_id=payload.reported_id,
@@ -378,38 +421,9 @@ async def report_user(
     return {"message": "Report submitted successfully"}
 
 
-# ═══════════════════════════════════════════════
-# DOWN TONIGHT - NEW FEATURE
-# ═══════════════════════════════════════════════
-
-@app.post("/users/me/down-tonight")
-@limiter.limit("10/minute")
-async def activate_down_tonight(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Activate DOWN TONIGHT for 8 hours
-    For now, this is a placeholder - payment will be handled by RevenueCat
-    In production, this endpoint should verify payment before activating
-    """
-    # Set down_tonight_until to 8 hours from now
-    current_user.down_tonight_until = datetime.now(timezone.utc) + timedelta(hours=8)
-
-    await db.commit()
-    await db.refresh(current_user)
-
-    return {
-        "message": "DOWN TONIGHT activated",
-        "down_tonight_until": current_user.down_tonight_until.isoformat(),
-        "expires_in_hours": 8
-    }
-
-
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # LOCATIONS
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 @app.put("/users/me/location", status_code=status.HTTP_204_NO_CONTENT)
 async def update_location(
@@ -428,9 +442,9 @@ async def update_location(
     await db.commit()
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # NEARBY
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 @app.get("/nearby", response_model=List[NearbyUser])
 async def get_nearby(
@@ -455,55 +469,37 @@ async def get_nearby(
             User.id != current_user.id,
             ST_DWithin(UserLocation.point, caller_point, radius_m),
         )
-        .order_by(distance_col)  # Still sort by distance in query
+        .order_by(distance_col)
     )
 
     rows = (await db.execute(stmt)).all()
-    now = datetime.now(timezone.utc)
-    
-    down_tonight_users = []
-    regular_users = []
-
+    results = []
     for row_user, dist_m in rows:
         row_tags = row_user.interest_tags or []
         shared   = list(set(caller_tags) & set(row_tags))
         if not shared:
             continue
-
-        # Check if user is DOWN TONIGHT
-        is_down_tonight = False
-        if row_user.down_tonight_until:
-            is_down_tonight = row_user.down_tonight_until > now
-
-        nearby_user = NearbyUser(
-            id=row_user.id,
-            display_name=row_user.display_name,
-            avatar_url=row_user.avatar_url,
-            photo_urls=row_user.photo_urls or [],
-            interest_tags=row_tags,
-            shared_tags=shared,
-            distance_miles=round(dist_m / MILES_TO_METRES, 2),
-            looking_for=row_user.looking_for,
-            sexuality=row_user.sexuality,
-            age=row_user.age,
-            bio=row_user.bio,
-            down_tonight=is_down_tonight,
+        results.append(
+            NearbyUser(
+                id=row_user.id,
+                display_name=row_user.display_name,
+                avatar_url=row_user.avatar_url,
+                photo_urls=row_user.photo_urls or [],
+                interest_tags=row_tags,
+                shared_tags=shared,
+                distance_miles=round(dist_m / MILES_TO_METRES, 2),
+                looking_for=row_user.looking_for,
+                sexuality=row_user.sexuality,
+                age=row_user.age,
+                bio=row_user.bio,
+            )
         )
-        
-        # Separate DOWN TONIGHT users from regular users
-        # Both groups are already sorted by distance from the query
-        if is_down_tonight:
-            down_tonight_users.append(nearby_user)
-        else:
-            regular_users.append(nearby_user)
-    
-    # Return DOWN TONIGHT users first (sorted by distance), then regular users (sorted by distance)
-    return down_tonight_users + regular_users
+    return results
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # PROPOSALS
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 @app.post("/propose", response_model=ProposalOut, status_code=status.HTTP_201_CREATED)
 async def create_proposal(
@@ -621,9 +617,9 @@ def _enrich_proposal(p: Proposal) -> ProposalOut:
     )
 
 
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 # MESSAGES
-# ═══════════════════════════════════════════════
+# ═══════════════════════════════════════════════════
 
 class MessageIn(BaseModel):
     content: str

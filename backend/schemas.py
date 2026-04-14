@@ -11,9 +11,9 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 # Users
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 
 class UserCreate(BaseModel):
     username:      str           = Field(..., min_length=3, max_length=50)
@@ -40,35 +40,24 @@ class UserOut(BaseModel):
     looking_for:   Optional[str]
     sexuality:     Optional[str]
     age:           Optional[int]
+    shimmer_color: Optional[str] = "#FF3C50"  # Holographic shimmer color
     created_at:    datetime
-    down_tonight:  bool = False  # NEW: DOWN TONIGHT status for current user
 
     model_config = {"from_attributes": True}
 
 
-class UserUpdate(BaseModel):
-    display_name:  Optional[str] = None
-    bio:           Optional[str] = None
-    avatar_url:    Optional[str] = None
-    photo_urls:    Optional[List[str]] = None
-    interest_tags: Optional[List[str]] = None
-    looking_for:   Optional[str] = None
-    sexuality:     Optional[str] = None
-    age:           Optional[int] = Field(None, ge=18, le=100)
-
-
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 # Locations
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 
 class LocationUpdate(BaseModel):
     latitude:  float = Field(..., ge=-90,  le=90)
     longitude: float = Field(..., ge=-180, le=180)
 
 
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 # Nearby
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 
 class NearbyRequest(BaseModel):
     latitude:     float = Field(..., ge=-90,  le=90)
@@ -88,14 +77,15 @@ class NearbyUser(BaseModel):
     sexuality:      Optional[str]
     age:            Optional[int]
     bio:            Optional[str]
-    down_tonight:   bool = False  # NEW: DOWN TONIGHT badge
+    shimmer_color:  Optional[str] = "#FF3C50"  # Holographic shimmer color
+    down_tonight:   bool = False  # DOWN TONIGHT status
 
     model_config = {"from_attributes": True}
 
 
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 # Proposals
-# ═══════════════════════════════════════════════
+# ─────────────────────────────────────────────
 
 class ProposalCreate(BaseModel):
     receiver_id:  uuid.UUID
@@ -119,35 +109,3 @@ class ProposalOut(BaseModel):
 
 class ProposalRespond(BaseModel):
     accept: bool
-
-
-# ═══════════════════════════════════════════════
-# Messages
-# ═══════════════════════════════════════════════
-
-class MessageIn(BaseModel):
-    content: str = Field(..., min_length=1, max_length=1000)
-
-
-class MessageOut(BaseModel):
-    id:          uuid.UUID
-    proposal_id: uuid.UUID
-    sender_id:   uuid.UUID
-    content:     str
-    created_at:  datetime
-
-    model_config = {"from_attributes": True}
-
-
-# ═══════════════════════════════════════════════
-# Auth
-# ═══════════════════════════════════════════════
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class TokenOut(BaseModel):
-    access_token: str
-    token_type:   str = "bearer"

@@ -119,8 +119,6 @@ export default function ProfileScreen() {
 
   const fadeAnim  = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
-  const ringAnim  = useRef(new Animated.Value(1)).current;
-  const ringAnim2 = useRef(new Animated.Value(1)).current;
 
   const { label: timerLabel } = useDownTimer(downTonightExpiresAt);
 
@@ -130,22 +128,6 @@ export default function ProfileScreen() {
       Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
   }, []);
-
-  useEffect(() => {
-    if (isDownTonight) {
-      Animated.loop(Animated.sequence([
-        Animated.timing(ringAnim,  { toValue: 1.15, duration: 1200,  useNativeDriver: true }),
-        Animated.timing(ringAnim,  { toValue: 1,    duration: 1200,  useNativeDriver: true }),
-      ])).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(ringAnim2, { toValue: 1.35, duration: 1800, useNativeDriver: true }),
-        Animated.timing(ringAnim2, { toValue: 1,    duration: 1800, useNativeDriver: true }),
-      ])).start();
-    } else {
-      ringAnim.stopAnimation();  ringAnim.setValue(1);
-      ringAnim2.stopAnimation(); ringAnim2.setValue(1);
-    }
-  }, [isDownTonight]);
 
   const handleAddPhoto = async () => {
     if (photos.length >= MAX_PHOTOS) {
@@ -268,12 +250,6 @@ export default function ProfileScreen() {
             disabled={isDownTonight}
             activeOpacity={isDownTonight ? 1 : 0.7}
           >
-            {isDownTonight && (
-              <>
-                <Animated.View style={[s.downRing,  { transform: [{ scale: ringAnim  }] }]} />
-                <Animated.View style={[s.downRing2, { transform: [{ scale: ringAnim2 }] }]} />
-              </>
-            )}
             <Text style={s.downBtnEmoji}>🔥</Text>
             <View style={s.downBtnTextWrap}>
               <Text style={[s.downBtnLabel, isDownTonight && s.downBtnLabelActive]}>
@@ -412,28 +388,6 @@ const s = StyleSheet.create({
   downBtnActive: { 
     borderColor: "#FF3C50", 
     backgroundColor: "rgba(255,60,80,0.08)" 
-  },
-  downRing: { 
-    position: "absolute", 
-    top: -8, 
-    left: -8, 
-    right: -8, 
-    bottom: -8, 
-    borderRadius: 20, 
-    borderWidth: 1.5, 
-    borderColor: "#FF3C50", 
-    opacity: 0.45 
-  },
-  downRing2: { 
-    position: "absolute", 
-    top: -16, 
-    left: -16, 
-    right: -16, 
-    bottom: -16, 
-    borderRadius: 28, 
-    borderWidth: 1, 
-    borderColor: "#FF3C50", 
-    opacity: 0.15 
   },
   downBtnEmoji: { fontSize: 24 },
   downBtnTextWrap: { flex: 1 },
