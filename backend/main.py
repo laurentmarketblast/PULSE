@@ -473,28 +473,42 @@ async def get_nearby(
     )
 
     rows = (await db.execute(stmt)).all()
-    results = []
+    
+    # Separate DOWN TONIGHT users from regular users
+    down_tonight_users = []
+    regular_users = []
+    
     for row_user, dist_m in rows:
         row_tags = row_user.interest_tags or []
         shared   = list(set(caller_tags) & set(row_tags))
         if not shared:
             continue
-        results.append(
-            NearbyUser(
-                id=row_user.id,
-                display_name=row_user.display_name,
-                avatar_url=row_user.avatar_url,
-                photo_urls=row_user.photo_urls or [],
-                interest_tags=row_tags,
-                shared_tags=shared,
-                distance_miles=round(dist_m / MILES_TO_METRES, 2),
-                looking_for=row_user.looking_for,
-                sexuality=row_user.sexuality,
-                age=row_user.age,
-                bio=row_user.bio,
-            )
+        
+        is_down_tonight = row_user.down_tonight_expires_at is not None and row_user.down_tonight_expires_at > datetime.now(timezone.utc)
+        
+        nearby_user = NearbyUser(
+            id=row_user.id,
+            display_name=row_user.display_name,
+            avatar_url=row_user.avatar_url,
+            photo_urls=row_user.photo_urls or [],
+            interest_tags=row_tags,
+            shared_tags=shared,
+            distance_miles=round(dist_m / MILES_TO_METRES, 2),
+            looking_for=row_user.looking_for,
+            sexuality=row_user.sexuality,
+            age=row_user.age,
+            bio=row_user.bio,
+            shimmer_color=row_user.shimmer_color or "#FF3C50",
+            down_tonight=is_down_tonight,
         )
-    return results
+        
+        if is_down_tonight:
+            down_tonight_users.append(nearby_user)
+        else:
+            regular_users.append(nearby_user)
+    
+    # Return DOWN TONIGHT users first, then regular users
+    return down_tonight_users + regular_users
 
 
 # ═══════════════════════════════════════════════════
