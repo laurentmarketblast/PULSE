@@ -128,7 +128,7 @@ const fp = StyleSheet.create({
   proposeBtnText: { color: "#fff", fontWeight: "700", fontSize: 15, letterSpacing: 0.3 },
 });
 
-function UserCard({ person, onPropose, onViewProfile, shimmerTranslate, shimmerColors }) {
+function UserCard({ person, onPropose, onViewProfile }) {
   const allPhotos = [...(person.avatar_url ? [person.avatar_url] : []), ...(person.photo_urls || [])].filter(Boolean);
   const [photoIndex, setPhotoIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
@@ -168,23 +168,11 @@ function UserCard({ person, onPropose, onViewProfile, shimmerTranslate, shimmerC
       <LinearGradient colors={["transparent", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.97)"]} style={card.gradient} pointerEvents="none" />
       <View style={card.distBadge} pointerEvents="none"><Text style={card.distText}>{person.distance_miles} mi</Text></View>
       {totalPhotos > 1 && <View style={card.photoCtr} pointerEvents="none"><Text style={card.photoCtrText}>{photoIndex + 1}/{totalPhotos}</Text></View>}
-      {person.down_tonight && shimmerColors.length > 0 && (
-        <>
-          <View style={card.downBadge} pointerEvents="none">
-            <Text style={card.downBadgeEmoji}>🔥</Text>
-            <Text style={card.downBadgeText}>DOWN</Text>
-          </View>
-          <View style={card.holoContainer} pointerEvents="none">
-            <Animated.View style={{ transform: [{ translateX: shimmerTranslate }, { rotate: "15deg" }] }}>
-              <LinearGradient
-                colors={shimmerColors}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={card.holoShimmer}
-              />
-            </Animated.View>
-          </View>
-        </>
+      {person.down_tonight && (
+        <View style={card.downBadge} pointerEvents="none">
+          <Text style={card.downBadgeEmoji}>🔥</Text>
+          <Text style={card.downBadgeText}>DOWN</Text>
+        </View>
       )}
       <View style={card.info} pointerEvents="none">
         <View style={card.nameRow}>
@@ -267,80 +255,33 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
   const likeOpacity = position.x.interpolate({ inputRange: [0, width * 0.25], outputRange: [0, 1], extrapolate: "clamp" });
   const nopeOpacity = position.x.interpolate({ inputRange: [-width * 0.25, 0], outputRange: [1, 0], extrapolate: "clamp" });
 
-  // Holographic shimmer for DOWN TONIGHT
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
-  
-  // Subtle pulsing glow for DOWN TONIGHT
-  const glowAnim = useRef(new Animated.Value(1)).current;
+  // Simple breathing glow for DOWN TONIGHT (legendary card style)
+  const glowAnim = useRef(new Animated.Value(0.5)).current;
 
   useEffect(() => {
     if (person.down_tonight && isTop) {
-      // Shimmer animation - slow and luxurious
-      Animated.loop(
-        Animated.timing(shimmerAnim, {
-          toValue: 1,
-          duration: 5000, // Slower = more premium
-          useNativeDriver: true,
-        })
-      ).start();
-      
-      // Gentle glow pulse
+      // Gentle breathing glow - slow and smooth
       Animated.loop(
         Animated.sequence([
           Animated.timing(glowAnim, {
-            toValue: 1.15,
-            duration: 2000,
+            toValue: 1,
+            duration: 1500,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: false,
           }),
           Animated.timing(glowAnim, {
-            toValue: 1,
-            duration: 2000,
+            toValue: 0.5,
+            duration: 1500,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: false,
           }),
         ])
       ).start();
     } else {
-      shimmerAnim.stopAnimation();
-      shimmerAnim.setValue(0);
       glowAnim.stopAnimation();
-      glowAnim.setValue(1);
+      glowAnim.setValue(0.5);
     }
   }, [person.down_tonight, isTop]);
-
-  const shimmerTranslate = shimmerAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-width * 2, width * 2],
-  });
-
-  // Generate gradient from user's shimmer_color
-  const generateShimmerGradient = (baseColor) => {
-    // Parse hex color
-    const hex = baseColor.replace('#', '');
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
-
-    // Create gradient variations
-    return [
-      "transparent",
-      `rgba(${r}, ${g}, ${b}, 0.2)`,
-      `rgba(${Math.min(r + 30, 255)}, ${Math.min(g + 30, 255)}, ${Math.min(b + 30, 255)}, 0.25)`,
-      `rgba(${Math.min(r + 50, 255)}, ${Math.min(g + 20, 255)}, ${Math.min(b + 40, 255)}, 0.3)`,
-      `rgba(${r}, ${Math.min(g + 40, 255)}, ${Math.min(b + 60, 255)}, 0.3)`,
-      `rgba(${Math.min(r + 40, 255)}, ${g}, ${Math.min(b + 50, 255)}, 0.35)`,
-      `rgba(${r}, ${Math.min(g + 40, 255)}, ${Math.min(b + 60, 255)}, 0.3)`,
-      `rgba(${Math.min(r + 50, 255)}, ${Math.min(g + 20, 255)}, ${Math.min(b + 40, 255)}, 0.3)`,
-      `rgba(${Math.min(r + 30, 255)}, ${Math.min(g + 30, 255)}, ${Math.min(b + 30, 255)}, 0.25)`,
-      `rgba(${r}, ${g}, ${b}, 0.2)`,
-      "transparent",
-    ];
-  };
-
-  const shimmerColors = person.down_tonight 
-    ? generateShimmerGradient(person.shimmer_color || "#FF3C50")
-    : [];
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => false,
@@ -380,14 +321,7 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
           style={[
             sw.downGlow, 
             { 
-              shadowOpacity: glowAnim.interpolate({
-                inputRange: [1, 1.15],
-                outputRange: [0.4, 0.7],
-              }),
-              shadowRadius: glowAnim.interpolate({
-                inputRange: [1, 1.15],
-                outputRange: [10, 16],
-              }),
+              opacity: glowAnim,
             }
           ]} 
           pointerEvents="none" 
@@ -395,7 +329,7 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
       )}
       <Animated.View style={[sw.stamp, sw.likeStamp, { opacity: likeOpacity }]}><Text style={sw.likeText}>DOWN</Text></Animated.View>
       <Animated.View style={[sw.stamp, sw.nopeStamp, { opacity: nopeOpacity }]}><Text style={sw.nopeText}>PASS</Text></Animated.View>
-      <UserCard person={person} onPropose={onPropose} onViewProfile={() => setShowProfile(true)} shimmerTranslate={shimmerTranslate} shimmerColors={shimmerColors} />
+      <UserCard person={person} onPropose={onPropose} onViewProfile={() => setShowProfile(true)} />
       <FullProfileSheet person={person} visible={showProfile} onClose={() => setShowProfile(false)} onPropose={onPropose} />
     </Animated.View>
   );
@@ -405,16 +339,18 @@ const sw = StyleSheet.create({
   card: { position: "absolute", width: width - 32, height: height * 0.72, top: 0 },
   downGlow: { 
     position: "absolute", 
-    top: -8, 
-    left: -8, 
-    right: -8, 
-    bottom: -8, 
-    borderRadius: 28, 
-    borderWidth: 1.5, 
+    top: -4, 
+    left: -4, 
+    right: -4, 
+    bottom: -4, 
+    borderRadius: 24, 
+    borderWidth: 2.5, 
     borderColor: "#FF3C50", 
     shadowColor: "#FF3C50",
     shadowOffset: { width: 0, height: 0 },
-    elevation: 12,
+    shadowOpacity: 0.8,
+    shadowRadius: 14,
+    elevation: 14,
   },
   stamp: { position: "absolute", top: 36, zIndex: 99, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, borderWidth: 2 },
   likeStamp: { left: 20, borderColor: "#FF3C50", backgroundColor: "rgba(255,60,80,0.1)", transform: [{ rotate: "-15deg" }] },
