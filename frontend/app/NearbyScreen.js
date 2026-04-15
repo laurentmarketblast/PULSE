@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  View, Text, StyleSheet, Animated, PanResponder,
+  View, Text, StyleSheet, Animated, PanResponder, Easing,
   Dimensions, TouchableOpacity, ActivityIndicator,
   Alert, StatusBar, Image, ScrollView, Modal,
 } from "react-native";
@@ -269,19 +269,43 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
 
   // Holographic shimmer for DOWN TONIGHT
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+  
+  // Subtle pulsing glow for DOWN TONIGHT
+  const glowAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (person.down_tonight && isTop) {
+      // Shimmer animation - slow and luxurious
       Animated.loop(
         Animated.timing(shimmerAnim, {
           toValue: 1,
-          duration: 4000, // Much slower - 4 seconds
+          duration: 5000, // Slower = more premium
           useNativeDriver: true,
         })
+      ).start();
+      
+      // Gentle glow pulse
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowAnim, {
+            toValue: 1.15,
+            duration: 2000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnim, {
+            toValue: 1,
+            duration: 2000,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+        ])
       ).start();
     } else {
       shimmerAnim.stopAnimation();
       shimmerAnim.setValue(0);
+      glowAnim.stopAnimation();
+      glowAnim.setValue(1);
     }
   }, [person.down_tonight, isTop]);
 
@@ -351,7 +375,24 @@ function SwipeCard({ person, onSwipeLeft, onSwipeRight, onPropose, isTop, index 
 
   return (
     <Animated.View style={[sw.card, { transform: [{ translateX: position.x }, { translateY: position.y }, { rotate }], zIndex: 20 }]} {...panResponder.panHandlers}>
-      {person.down_tonight && <View style={sw.downGlow} pointerEvents="none" />}
+      {person.down_tonight && (
+        <Animated.View 
+          style={[
+            sw.downGlow, 
+            { 
+              shadowOpacity: glowAnim.interpolate({
+                inputRange: [1, 1.15],
+                outputRange: [0.4, 0.7],
+              }),
+              shadowRadius: glowAnim.interpolate({
+                inputRange: [1, 1.15],
+                outputRange: [10, 16],
+              }),
+            }
+          ]} 
+          pointerEvents="none" 
+        />
+      )}
       <Animated.View style={[sw.stamp, sw.likeStamp, { opacity: likeOpacity }]}><Text style={sw.likeText}>DOWN</Text></Animated.View>
       <Animated.View style={[sw.stamp, sw.nopeStamp, { opacity: nopeOpacity }]}><Text style={sw.nopeText}>PASS</Text></Animated.View>
       <UserCard person={person} onPropose={onPropose} onViewProfile={() => setShowProfile(true)} shimmerTranslate={shimmerTranslate} shimmerColors={shimmerColors} />
@@ -369,12 +410,10 @@ const sw = StyleSheet.create({
     right: -8, 
     bottom: -8, 
     borderRadius: 28, 
-    borderWidth: 2, 
+    borderWidth: 1.5, 
     borderColor: "#FF3C50", 
     shadowColor: "#FF3C50",
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
     elevation: 12,
   },
   stamp: { position: "absolute", top: 36, zIndex: 99, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, borderWidth: 2 },
