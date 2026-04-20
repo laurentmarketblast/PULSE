@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status, Request, File, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, status, Request, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
@@ -32,6 +32,7 @@ from schemas import (
     UserCreate, UserOut,
 )
 from storage import get_supabase_client
+from websocket_manager import manager as ws_manager
 from PIL import Image
 import io
 
@@ -69,6 +70,20 @@ def extract_dominant_color(img: Image.Image) -> str:
     
     # Convert to hex
     return f"#{r:02x}{g:02x}{b:02x}"
+
+# ═══════════════════════════════════════════════════
+# CONTENT MODERATION
+# ═══════════════════════════════════════════════════
+
+def contains_spam_or_abuse(text: str) -> bool:
+    """Basic spam/abuse detection - expand as needed"""
+    text_lower = text.lower()
+    spam_patterns = [
+        "http://", "https://", "www.",  # Block URLs
+        "telegram", "whatsapp", "snapchat",  # Block other platforms
+        "venmo", "cashapp", "paypal", "zelle",  # Block payment requests
+    ]
+    return any(pattern in text_lower for pattern in spam_patterns)
 
 # ═══════════════════════════════════════════════════
 # JWT CONFIG
@@ -361,6 +376,16 @@ async def delete_account(
 ):
     """Soft delete user account (App Store requirement)"""
     current_user.deleted_at = datetime.now(timezone.utc)
+    
+    # Clear sensitive data but keep user record for data integrity
+    current_user.hashed_password = None
+    current_user.avatar_url = None
+    current_user.photo_urls = []
+    current_user.bio = "[deleted]"
+    current_user.interest_tags = []
+    
+    # TODO: Delete photos from Supabase Storage in background job
+    
     await db.commit()
 
 
@@ -477,6 +502,18 @@ async def get_nearby(
     if not caller_tags:
         return []
 
+    # SECURITY: Get list of blocked user IDs (users I blocked + users who blocked me)
+    blocked_by_me = await db.execute(
+        select(UserBlock.blocked_id).where(UserBlock.blocker_id == current_user.id)
+    )
+    blocked_me = await db.execute(
+        select(UserBlock.blocker_id).where(UserBlock.blocked_id == current_user.id)
+    )
+    
+    blocked_ids = set()
+    blocked_ids.update(row[0] for row in blocked_by_me)
+    blocked_ids.update(row[0] for row in blocked_me)
+
     radius_m     = radius_miles * MILES_TO_METRES
     caller_point = ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
     distance_col = ST_Distance(UserLocation.point, caller_point).label("distance_m")
@@ -487,9 +524,14 @@ async def get_nearby(
         .where(
             User.id != current_user.id,
             ST_DWithin(UserLocation.point, caller_point, radius_m),
+            User.deleted_at.is_(None),  # SECURITY: Don't show deleted accounts
         )
         .order_by(distance_col)
     )
+    
+    # SECURITY: Filter out blocked users
+    if blocked_ids:
+        stmt = stmt.where(User.id.not_in(blocked_ids))
 
     rows = (await db.execute(stmt)).all()
     
@@ -655,7 +697,7 @@ def _enrich_proposal(p: Proposal) -> ProposalOut:
 # ═══════════════════════════════════════════════════
 
 class MessageIn(BaseModel):
-    content: str
+    content: str = Field(..., min_length=1, max_length=2000)  # SECURITY: Max 2000 chars
 
 
 class MessageOut(BaseModel):
@@ -670,7 +712,9 @@ class MessageOut(BaseModel):
 
 
 @app.post("/proposals/{proposal_id}/messages", response_model=MessageOut, status_code=201)
+@limiter.limit("30/minute")  # SECURITY: Rate limit messages to prevent spam
 async def send_message(
+    request:      Request,  # Required for rate limiter
     proposal_id:  uuid.UUID,
     payload:      MessageIn,
     current_user: User = Depends(get_current_user),
@@ -685,6 +729,10 @@ async def send_message(
         raise HTTPException(status_code=403, detail="Not part of this proposal.")
     if not payload.content.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    
+    # SECURITY: Block spam/URLs/payment requests
+    if contains_spam_or_abuse(payload.content):
+        raise HTTPException(status_code=400, detail="Message contains prohibited content (URLs, payment requests, etc).")
 
     msg = Message(
         proposal_id=proposal_id,
@@ -695,6 +743,27 @@ async def send_message(
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
+    
+    # REAL-TIME: Broadcast message to both users via WebSocket
+    message_data = {
+        "type": "new_message",
+        "message": {
+            "id": str(msg.id),
+            "proposal_id": str(msg.proposal_id),
+            "sender_id": str(msg.sender_id),
+            "content": msg.content,
+            "created_at": msg.created_at.isoformat(),
+        }
+    }
+    
+    # Send to both sender and receiver
+    other_user_id = proposal.receiver_id if current_user.id == proposal.sender_id else proposal.sender_id
+    await ws_manager.send_to_user(str(current_user.id), message_data)
+    await ws_manager.send_to_user(str(other_user_id), message_data)
+    
+    # Clear typing indicator for sender
+    await ws_manager.set_typing(str(proposal_id), str(current_user.id), False)
+    
     return msg
 
 
@@ -717,3 +786,82 @@ async def get_messages(
     )
     messages = (await db.execute(stmt)).scalars().all()
     return messages
+
+
+# ═══════════════════════════════════════════════════
+# WEBSOCKET
+# ═══════════════════════════════════════════════════
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str):
+    """
+    WebSocket endpoint for real-time messaging
+    
+    Client sends:
+    {
+        "type": "typing",
+        "proposal_id": "...",
+        "is_typing": true
+    }
+    
+    Server sends:
+    {
+        "type": "new_message",
+        "message": {...}
+    }
+    
+    {
+        "type": "typing_indicator",
+        "proposal_id": "...",
+        "user_id": "...",
+        "is_typing": true
+    }
+    """
+    await ws_manager.connect(websocket, user_id)
+    
+    # Notify that user came online
+    await ws_manager.send_to_user(user_id, {
+        "type": "connection_established",
+        "user_id": user_id,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+    
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+            
+            if message_type == "ping":
+                # Heartbeat to keep connection alive
+                await websocket.send_json({"type": "pong"})
+            
+            elif message_type == "typing":
+                # Handle typing indicator
+                proposal_id = data.get("proposal_id")
+                is_typing = data.get("is_typing", False)
+                
+                if proposal_id:
+                    await ws_manager.set_typing(proposal_id, user_id, is_typing)
+                    
+                    # Get the proposal to find the other user
+                    async for db in get_db():
+                        proposal = await db.get(Proposal, uuid.UUID(proposal_id))
+                        if proposal:
+                            other_user_id = str(proposal.receiver_id if str(proposal.sender_id) == user_id else proposal.sender_id)
+                            
+                            # Send typing indicator to other user
+                            await ws_manager.send_to_user(other_user_id, {
+                                "type": "typing_indicator",
+                                "proposal_id": proposal_id,
+                                "user_id": user_id,
+                                "is_typing": is_typing
+                            })
+                        break
+    
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, user_id)
+        logger.info(f"User {user_id} disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error for user {user_id}: {e}")
+        ws_manager.disconnect(websocket, user_id)
