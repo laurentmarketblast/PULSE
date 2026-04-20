@@ -33,8 +33,15 @@ from schemas import (
 )
 from storage import get_supabase_client
 from websocket_manager import manager as ws_manager
+from push_service import (
+    get_user_push_tokens,
+    notify_new_proposal,
+    notify_proposal_accepted,
+    notify_new_message,
+)
 from PIL import Image
 import io
+import httpx
 
 logger = logging.getLogger("pulse")
 
@@ -608,6 +615,28 @@ async def create_proposal(
     db.add(proposal)
     await db.commit()
     await db.refresh(proposal)
+    
+    # PUSH NOTIFICATION: Notify receiver of new proposal (async, non-blocking)
+    try:
+        receiver_tokens = await get_user_push_tokens(db, receiver.id)
+        if receiver_tokens:
+            result = await notify_new_proposal(
+                receiver_tokens=receiver_tokens,
+                sender_name=current_user.display_name,
+                activity_tag=payload.activity_tag
+            )
+            logger.info(
+                f"Push notification sent for new proposal",
+                extra={
+                    "proposal_id": str(proposal.id),
+                    "delivered": result.delivered_count,
+                    "failed": result.failed_count
+                }
+            )
+    except Exception as e:
+        # Don't fail the request if push notification fails
+        logger.error(f"Failed to send push notification for new proposal: {e}", exc_info=True)
+    
     return _enrich_proposal(proposal)
 
 
@@ -662,6 +691,28 @@ async def respond_to_proposal(
     proposal.resolved_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(proposal)
+    
+    # PUSH NOTIFICATION: If accepted, notify sender (async, non-blocking)
+    if payload.accept:
+        try:
+            sender_tokens = await get_user_push_tokens(db, proposal.sender_id)
+            if sender_tokens:
+                result = await notify_proposal_accepted(
+                    sender_tokens=sender_tokens,
+                    receiver_name=current_user.display_name
+                )
+                logger.info(
+                    f"Push notification sent for accepted proposal",
+                    extra={
+                        "proposal_id": str(proposal.id),
+                        "delivered": result.delivered_count,
+                        "failed": result.failed_count
+                    }
+                )
+        except Exception as e:
+            # Don't fail the request if push notification fails
+            logger.error(f"Failed to send push notification for accepted proposal: {e}", exc_info=True)
+    
     return _enrich_proposal(proposal)
 
 
@@ -764,6 +815,29 @@ async def send_message(
     # Clear typing indicator for sender
     await ws_manager.set_typing(str(proposal_id), str(current_user.id), False)
     
+    # PUSH NOTIFICATION: If other user is offline (not connected to WebSocket), send push notification
+    if not ws_manager.is_online(str(other_user_id)):
+        try:
+            other_user_tokens = await get_user_push_tokens(db, other_user_id)
+            if other_user_tokens:
+                result = await notify_new_message(
+                    receiver_tokens=other_user_tokens,
+                    sender_name=current_user.display_name,
+                    message_preview=msg.content,
+                    unread_count=1  # TODO: Track actual unread count
+                )
+                logger.info(
+                    f"Push notification sent for new message",
+                    extra={
+                        "message_id": str(msg.id),
+                        "delivered": result.delivered_count,
+                        "failed": result.failed_count
+                    }
+                )
+        except Exception as e:
+            # Don't fail the request if push notification fails
+            logger.error(f"Failed to send push notification for new message: {e}", exc_info=True)
+    
     return msg
 
 
@@ -865,3 +939,105 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     except Exception as e:
         logger.error(f"WebSocket error for user {user_id}: {e}")
         ws_manager.disconnect(websocket, user_id)
+
+
+# ═══════════════════════════════════════════════════
+# PUSH NOTIFICATIONS - DEVICE TOKEN MANAGEMENT
+# ═══════════════════════════════════════════════════
+
+class DeviceTokenCreate(BaseModel):
+    """Schema for registering a push notification device token"""
+    token: str = Field(..., min_length=10, description="Expo push token")
+    platform: str = Field(..., pattern="^(ios|android)$", description="Device platform")
+
+
+@app.post("/device-tokens", status_code=status.HTTP_201_CREATED)
+async def register_device_token(
+    payload: DeviceTokenCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Register a device token for push notifications.
+    
+    Allows a user to register multiple devices (phone, tablet, etc).
+    Prevents duplicate registrations.
+    """
+    # Check if token already registered for this user
+    existing = await db.scalar(
+        select(DeviceToken).where(
+            DeviceToken.user_id == current_user.id,
+            DeviceToken.token == payload.token
+        )
+    )
+    
+    if existing:
+        logger.info(
+            f"Device token already registered for user {current_user.id}",
+            extra={"token": payload.token[:20] + "..."}
+        )
+        return {"message": "Token already registered", "token_id": str(existing.id)}
+    
+    # Create new device token
+    device_token = DeviceToken(
+        user_id=current_user.id,
+        token=payload.token,
+        platform=payload.platform,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(device_token)
+    await db.commit()
+    await db.refresh(device_token)
+    
+    logger.info(
+        f"Registered push token for user {current_user.id}",
+        extra={
+            "platform": payload.platform,
+            "token_id": str(device_token.id)
+        }
+    )
+    
+    return {
+        "message": "Token registered successfully",
+        "token_id": str(device_token.id)
+    }
+
+
+@app.delete("/device-tokens/{token}", status_code=status.HTTP_204_NO_CONTENT)
+async def unregister_device_token(
+    token: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Unregister a device token.
+    
+    Called when user logs out or uninstalls app.
+    """
+    device_token = await db.scalar(
+        select(DeviceToken).where(
+            DeviceToken.user_id == current_user.id,
+            DeviceToken.token == token
+        )
+    )
+    
+    if device_token:
+        await db.delete(device_token)
+        await db.commit()
+        logger.info(
+            f"Unregistered push token for user {current_user.id}",
+            extra={"token_id": str(device_token.id)}
+        )
+
+
+@app.get("/device-tokens/me")
+async def get_my_device_tokens(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all registered device tokens for current user"""
+    tokens = await get_user_push_tokens(db, current_user.id)
+    return {
+        "count": len(tokens),
+        "tokens": [{"token": t[:20] + "...", "full_token": t} for t in tokens]
+    }
